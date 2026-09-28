@@ -1,0 +1,16 @@
+{
+  "name": "fog-chess",
+  "version": "0.1.0",
+  "description": "Fog-of-war chess against the Obscuro AI, in your browser. JAS + obscuro-chess + a small UI.",
+  "author": "opowell <opowell@gmail.com>",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "sh start.sh",
+    "test": "node --no-warnings --test test/*.test.js"
+  }
+}

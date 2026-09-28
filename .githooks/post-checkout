@@ -1,0 +1,8 @@
+#!/bin/sh
+# See .githooks/post-merge for why this exists.
+#
+# $3 is 1 for a branch checkout and 0 for a file checkout (`git checkout -- x`).
+# Only the former can introduce a submodule, so skip the rest rather than shell
+# out on every single file restore.
+[ "$3" = "1" ] || exit 0
+exec git submodule update --init --recursive

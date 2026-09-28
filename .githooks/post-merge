@@ -1,0 +1,12 @@
+#!/bin/sh
+# Populate any submodule the incoming commits added or moved.
+#
+# Both halves of this repo that aren't ours live in submodules (vendor/jas and
+# vendor/obscuro-chess, which carries vendor/obscuro inside it). A plain pull
+# that bumps a pin leaves the old checkout in place, and a fresh one leaves an
+# empty directory; either way the server fails with a module-not-found that
+# looks nothing like its cause.
+#
+# `--init` covers a submodule this clone has never initialised; `--recursive`
+# is what fills in obscuro-chess's own vendor/obscuro, the search it runs on.
+exec git submodule update --init --recursive

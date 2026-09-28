@@ -1,0 +1,8 @@
+[submodule "vendor/jas"]
+	path = vendor/jas
+	url = https://github.com/opowell/jas.git
+	ignore = untracked
+[submodule "vendor/obscuro-chess"]
+	path = vendor/obscuro-chess
+	url = https://github.com/opowell/obscuro-chess.git
+	ignore = untracked

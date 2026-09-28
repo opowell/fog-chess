@@ -1,0 +1,4 @@
+#!/bin/sh
+# See .githooks/post-merge for why this exists. This one covers `git rebase`,
+# which is how a worktree usually picks up main in this repo.
+exec git submodule update --init --recursive

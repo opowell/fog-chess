@@ -1,0 +1,6 @@
+.DS_Store
+node_modules/
+
+# The Stockfish evaluation cache (see apps/fog-chess/server.js): derived data
+# that grows to tens of MB.
+/.cache/

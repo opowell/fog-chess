@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fog Chess</title>
+  <link rel="icon" href="pieces/bN.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="sound.js"></script>
+  <script type="module" src="main.js"></script>
+</head>
+<body>
+  <main class="layout">
+    <section class="board-wrap">
+      <div class="board-frame">
+        <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+        <div id="promotion" class="promotion" hidden></div>
+      </div>
+      <p id="status" class="status" aria-live="polite">Loading…</p>
+    </section>
+
+    <aside class="panel">
+      <header class="panel-head">
+        <h1>Fog Chess</h1>
+        <p class="tagline">You see only the squares your pieces can reach. Capture the king to win.</p>
+      </header>
+
+      <form id="new-game" class="card">
+        <h2>New game</h2>
+        <fieldset class="colors">
+          <legend>Play as</legend>
+          <label><input type="radio" name="color" value="white" checked> White</label>
+          <label><input type="radio" name="color" value="black"> Black</label>
+          <label><input type="radio" name="color" value="random"> Random</label>
+        </fieldset>
+        <label class="difficulty">
+          <span>AI strength <output id="difficulty-out">25</output></span>
+          <input id="difficulty" type="range" min="0" max="100" step="1" value="25">
+          <small>0 plays at random; 100 thinks about 2 s a move.</small>
+        </label>
+        <button type="submit">Start</button>
+      </form>
+
+      <div class="card">
+        <label class="toggle">
+          <input id="show-belief" type="checkbox">
+          <span>Show where the enemy might be</span>
+        </label>
+        <p id="belief-note" class="note"></p>
+        <p class="note">Right-click a dark square (or long-press on touch) to leave yourself a marker.</p>
+      </div>
+
+      <div class="card">
+        <h2>Moves</h2>
+        <ol id="moves" class="moves"></ol>
+      </div>
+
+      <details class="card rules">
+        <summary>How fog chess differs</summary>
+        <ul>
+          <li>You see a square only if one of your pieces could move to it. Everything else is dark, enemy pieces included.</li>
+          <li>There is no check or checkmate. Moving into check is legal; it just loses when the king is taken.</li>
+          <li>A pawn push into a hidden piece fails: the pawn stays put and your turn is spent.</li>
+          <li>Fifty moves each without a capture or pawn move is a draw.</li>
+        </ul>
+        <p class="note">The opponent is <a href="https://github.com/opowell/obscuro-chess" target="_blank" rel="noopener">Obscuro</a>: it keeps every position consistent with what it has seen and plays an equilibrium strategy over them.</p>
+      </details>
+    </aside>
+  </main>
+</body>
+</html>
