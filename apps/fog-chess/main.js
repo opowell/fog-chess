@@ -1,8 +1,12 @@
 // The fog chess client. It never sees the true board: the server sends the
 // human's fog-filtered view (see games.js), and this file only draws it and
-// turns clicks into the move keys the server listed as legal.
+// turns clicks into the move keys the server listed as legal. Finished games
+// are kept in the browser (archive.js) and can be opened again for review.
+
+import { saveGame, listGames, loadGame, deleteGame } from './archive.js';
 
 const API = 'api/games';
+const REVIEWS = 'api/reviews';
 const FILES = 'abcdefgh';
 const PIECE_FILE = { king: 'K', queen: 'Q', rook: 'R', bishop: 'B', knight: 'N', pawn: 'P' };
 const TYPE_OF_LETTER = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
@@ -15,6 +19,7 @@ const statusEl = $('status');
 const promotionEl = $('promotion');
 const beliefToggle = $('show-belief');
 const beliefNote = $('belief-note');
+const reviewFog = $('review-fog');
 
 let view = null;
 let selected = null;
@@ -26,6 +31,8 @@ let epoch = 0; // bumped on every new game, so a late reply for an old one is dr
 let drag = null; // a piece being dragged: { from, pointerId, x, y, ghost, over }
 let suppressClick = false; // the click that ends a drag is not a second tap
 let plyShown = null; // stepping back through the game: the index into view.history on the board, or null for now
+let archived = []; // the past games list: [{ id, endedAt, humanColor, strength, result, plies }]
+let reviewTimer = null;
 
 const store = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
@@ -87,23 +94,51 @@ function render() {
   renderAnalysis();
 }
 
-// Setting up a game and playing one are separate modes: while a game is on,
-// the setup card (title, new-game form, rules) gives way to the in-game cards.
+const strengthText = ({ mode, power, timeMs } = {}) =>
+  mode === 'time' ? `AI time ${timeMs} ms a move` : mode === 'power' ? `AI power ${power}` : null;
+
+// Setting up a game, playing one and reviewing an old one are separate modes:
+// while a game is on, the setup cards (title, new-game form, rules, past
+// games) give way to the in-game cards, and a review has cards of its own.
 function renderPanels() {
-  const playing = !!view && !view.result;
-  $('setup').hidden = playing;
-  $('in-game').hidden = !playing;
-  $('fog-card').hidden = $('moves-card').hidden = !playing;
-  if (playing) {
-    const { mode, power, timeMs } = view.strength ?? {};
-    const ai = mode === 'time' ? `AI time ${timeMs} ms a move` : mode === 'power' ? `AI power ${power}` : null;
+  const live = playing();
+  const review = reviewing();
+  $('setup').hidden = live || review;
+  $('archive').hidden = live || review || !archived.length;
+  $('in-game').hidden = !live;
+  $('review').hidden = !review;
+  $('moves-card').hidden = !live && !review;
+  $('fog-card').hidden = !live && !(review && reviewFog.checked);
+  $('marker-note').hidden = review;
+  if (live) {
+    const ai = strengthText(view.strength);
     $('game-info').textContent = `You play ${view.humanColor}.` + (ai ? ` ${ai}.` : '');
+  }
+  if (review) {
+    const ai = strengthText(view.strength);
+    $('review-info').textContent = `${fmtDate(view.endedAt)}. You played ${view.humanColor}.` + (ai ? ` ${ai}.` : '');
   }
 }
 
+const fmtDate = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+const reviewing = () => !!view?.review;
+const plyOnBoard = () => plyShown ?? (view?.history?.length ?? 1) - 1;
+
 // The position on the board when stepping back through the game (see
-// stepHistory), or null while it shows the game as it stands.
-const pastPly = () => (plyShown === null ? null : view?.history?.[plyShown] ?? null);
+// stepHistory), or null while it shows the game as it stands. A review is
+// always a position from the history: the whole board, or what you saw of it.
+function pastPly() {
+  if (reviewing()) {
+    const ply = view.history[plyOnBoard()];
+    return reviewFog.checked ? ply.seen : ply;
+  }
+  return plyShown === null ? null : view?.history?.[plyShown] ?? null;
+}
+
+// Whether the board shows the position the analysis and the belief overlay
+// are about (see target), rather than an earlier one looked back at.
+const boardOnTarget = () => reviewing() || plyShown === null;
 
 function renderBoard() {
   const past = pastPly();
@@ -113,7 +148,7 @@ function renderBoard() {
   const targets = new Set(selected ? legal.filter(m => m.from === selected).map(m => m.to) : []);
   const movable = new Set(legal.map(m => m.from));
   const order = squaresInOrder();
-  const ghosts = new Map(past ? [] : (currentWorld()?.hidden ?? []).map(h => [h.sq, TYPE_OF_LETTER[h.type]]));
+  const ghosts = new Map(boardOnTarget() ? (currentWorld()?.hidden ?? []).map(h => [h.sq, TYPE_OF_LETTER[h.type]]) : []);
   const fragment = document.createDocumentFragment();
 
   order.forEach((sq, i) => {
@@ -152,7 +187,7 @@ function renderBoard() {
       label += ', hidden';
     }
 
-    const cellBelief = fogged && !past && belief?.squares?.[sq];
+    const cellBelief = fogged && boardOnTarget() && belief?.squares?.[sq];
     if (cellBelief && cellBelief.p >= 0.02) {
       cell.classList.add('belief');
       cell.style.setProperty('--p', (0.08 + cellBelief.p * 0.42).toFixed(3));
@@ -208,6 +243,7 @@ function resultText(result) {
 function renderStatus() {
   statusEl.classList.remove('thinking');
   if (!view) { statusEl.textContent = ''; return; }
+  if (reviewing()) { statusEl.textContent = reviewText(); return; }
   if (pastPly()) { statusEl.textContent = historyText(); return; }
   const news = view.events.map(eventText).filter(Boolean).join(' ');
   if (view.result) {
@@ -223,12 +259,19 @@ function renderStatus() {
 }
 
 // Where the board is when stepping back, in the move list's own words.
-function historyText() {
-  const move = view.moves[plyShown - 1];
-  const where = move
-    ? `after ${Math.ceil(plyShown / 2)}.${move.color === 'white' ? '' : '..'} ${move.text ?? 'the opponent’s hidden move'}`
+function plyText(ply) {
+  const move = view.moves[ply - 1];
+  return move
+    ? `after ${Math.ceil(ply / 2)}.${move.color === 'white' ? '' : '..'} ${move.text ?? 'the opponent’s hidden move'}`
     : 'the start';
-  return `Looking back: ${where}. ← → step a move at a time, back to the game at the end.`;
+}
+
+const historyText = () => `Looking back: ${plyText(plyShown)}. ← → step a move at a time, back to the game at the end.`;
+
+function reviewText() {
+  const where = plyText(plyOnBoard());
+  const end = plyShown === null ? ' ' + resultText(view.result) : '';
+  return `${where[0].toUpperCase() + where.slice(1)}.${end} ← → step through the game.`;
 }
 
 function renderMoves() {
@@ -276,26 +319,131 @@ function showPly(ply) {
   plyShown = ply === last ? null : ply;
   selected = null;
   endDrag();
+  if (reviewing()) {
+    // Scrubbing through a review asks the server for nothing until it stops.
+    belief = null;
+    syncAnalysis();
+    clearTimeout(reviewTimer);
+    reviewTimer = setTimeout(() => { startAnalysis(); refreshBelief(); }, 250);
+  }
   render();
 }
 
-const stepHistory = delta => showPly((plyShown ?? (view?.history?.length ?? 0) - 1) + delta);
+const stepHistory = delta => showPly(plyOnBoard() + delta);
+
+// --- reviewing old games ----------------------------------------------------
+//
+// A finished game is kept in the browser, and opening one steps through it
+// like a game just played, a ply at a time. On the positions where you were to
+// move, the analysis and the belief overlay work as they did in play: the
+// server replays the game that far (GameStore.review), so both are built from
+// what you knew then.
+
+// The position the analysis and the belief overlay are about, and how to find
+// the server's game for it: the live game on your move, or in a review the
+// ply on the board if you were the one to move there. Null when there is none.
+function target() {
+  if (playing()) return view.thinking ? null : { position: `${view.id}:${view.turn}`, gameId: async () => view.id };
+  if (!reviewing()) return null;
+  const ply = plyOnBoard();
+  const last = view.history.length - 1;
+  const mine = (ply % 2 === 0) === (view.humanColor === 'white'); // white moves first
+  if (!mine || (ply === last && view.result.reason !== 'resigned')) return null;
+  const keys = view.keys.slice(0, ply);
+  return {
+    position: `review:${view.id}:${ply}`,
+    gameId: async () => (await api(REVIEWS, { method: 'POST', body: { humanColor: view.humanColor, keys } })).id,
+  };
+}
+
+async function openReview(id) {
+  const record = await loadGame(id);
+  if (!record) { renderArchive(); return; }
+  leaveGame();
+  view = { ...record, review: true };
+  syncAnalysis();
+  render();
+  startAnalysis();
+  refreshBelief();
+}
+
+function closeReview() {
+  leaveGame();
+  view = null;
+  syncAnalysis();
+  render();
+}
+
+// Whatever was on the board goes, and nothing still on its way for it lands.
+function leaveGame() {
+  epoch++;
+  stopAnalysis();
+  clearTimeout(reviewTimer);
+  busy = false;
+  selected = null;
+  plyShown = null;
+  belief = null;
+  markers = {};
+  flashes = [];
+  promotionEl.hidden = true;
+}
+
+const OUTCOME = { won: 'Won', lost: 'Lost', drew: 'Drew', resigned: 'Resigned' };
+function outcome({ result, humanColor }) {
+  if (result.outcome === 'draw') return 'drew';
+  if (result.reason === 'resigned') return 'resigned';
+  return result.winnerId === humanColor ? 'won' : 'lost';
+}
+
+async function renderArchive() {
+  archived = await listGames();
+  $('archive-list').replaceChildren(...archived.map(g => {
+    const li = document.createElement('li');
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'archive-open';
+    open.dataset.open = g.id;
+    open.title = 'Review this game';
+    const title = document.createElement('span');
+    const how = outcome(g);
+    title.className = 'archive-title ' + how;
+    title.textContent = `${OUTCOME[how]} as ${g.humanColor}`;
+    const meta = document.createElement('span');
+    meta.className = 'archive-meta';
+    const moves = Math.ceil(g.plies / 2);
+    meta.textContent = [fmtDate(g.endedAt), `${moves} move${moves === 1 ? '' : 's'}`, strengthText(g.strength)].filter(Boolean).join(' · ');
+    open.append(title, meta);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'archive-delete';
+    del.dataset.delete = g.id;
+    del.title = 'Delete this game';
+    del.setAttribute('aria-label', 'Delete this game');
+    del.textContent = '×';
+    li.append(open, del);
+    return li;
+  }));
+  renderPanels();
+}
 
 // --- belief overlay ---------------------------------------------------------
 
 async function refreshBelief() {
   belief = null;
   beliefNote.textContent = '';
-  if (!beliefToggle.checked || !view || view.result || view.thinking) { renderBoard(); return; }
+  const on = beliefToggle.checked && (!reviewing() || reviewFog.checked);
+  const t = on ? target() : null;
+  if (!t) { renderBoard(); return; }
   const mine = epoch;
   try {
-    const data = await api(`${API}/${view.id}/belief`);
-    if (mine !== epoch) return;
+    const data = await api(`${API}/${await t.gameId()}/belief`);
+    if (mine !== epoch || target()?.position !== t.position) return;
     belief = data;
     beliefNote.textContent = data.exact
       ? `Weighing ${data.positions.toLocaleString()} possible position${data.positions === 1 ? '' : 's'}; shading is the chance an enemy piece is on each dark square.`
       : 'There are too many possible positions to track exactly any more.';
   } catch (error) {
+    if (mine !== epoch || target()?.position !== t.position) return;
     beliefNote.textContent = 'Could not load the belief: ' + error.message;
   }
   renderBoard();
@@ -315,6 +463,7 @@ const analysis = {
   paused: false,
   source: null,      // the EventSource in flight
   running: false,
+  run: 0,            // bumped on every stop, so a start still finding its game gives up
   position: null,    // `${game}:${turn}`: what the results below are about
   candidates: [],    // ranked: [{ key, text, from, to, cp, prob }]
   worlds: null,      // { total, approx, depth, moves, list: [{ id, prob, cp, hidden }] }
@@ -359,9 +508,10 @@ function progressLabel(f) {
 }
 
 const playing = () => !!view && !view.result;
-const analysisWanted = () => analysis.on && !analysis.paused && playing() && !view.thinking && !busy;
+const analysisWanted = () => analysis.on && !analysis.paused && !!target() && !busy;
 
 function stopAnalysis() {
+  analysis.run++;
   analysis.source?.close();
   analysis.source = null;
   analysis.running = false;
@@ -369,7 +519,7 @@ function stopAnalysis() {
 
 // A new position makes whatever is on screen wrong, so it goes at once.
 function syncAnalysis() {
-  const position = view ? `${view.id}:${view.turn}` : null;
+  const position = target()?.position ?? null;
   if (position === analysis.position) return;
   stopAnalysis();
   Object.assign(analysis, { position, candidates: [], worlds: null, progress: null, single: false, error: '', hovered: null });
@@ -378,14 +528,27 @@ function syncAnalysis() {
 
 // Resuming on the same turn picks the walk up where it stopped (the server
 // keeps its place), so what is on screen stays until something newer arrives.
-function startAnalysis() {
+async function startAnalysis() {
   stopAnalysis();
   syncAnalysis();
   if (!analysisWanted()) { renderAnalysis(); return; }
-  const source = new EventSource(`${API}/${view.id}/analysis`);
-  analysis.source = source;
+  const run = analysis.run;
   analysis.running = true;
   analysis.error = '';
+  renderAnalysis();
+  let id;
+  try {
+    id = await target().gameId();
+  } catch (error) {
+    if (run !== analysis.run) return;
+    analysis.running = false;
+    analysis.error = error.message;
+    renderAnalysis();
+    return;
+  }
+  if (run !== analysis.run) return;
+  const source = new EventSource(`${API}/${id}/analysis`);
+  analysis.source = source;
   source.onmessage = e => {
     if (source !== analysis.source) return;
     const f = JSON.parse(e.data);
@@ -443,7 +606,7 @@ function worldRows() {
     .sort((a, b) => (a.rank - b.rank) || (b.cp - a.cp));
 }
 
-const worldsShown = () => analysis.on && !analysis.paused && playing() && !view.thinking && !!analysis.worlds?.list?.length;
+const worldsShown = () => analysis.on && !analysis.paused && !!target() && !!analysis.worlds?.list?.length;
 
 function currentWorld() {
   if (!worldsShown()) return null;
@@ -453,8 +616,9 @@ function currentWorld() {
 
 function renderAnalysis() {
   const section = $('analysis');
-  section.hidden = !playing();
+  section.hidden = !playing() && !reviewing();
   if (section.hidden) return;
+  const here = !!target();
   $('an-on').classList.toggle('on', analysis.on);
   $('an-off').classList.toggle('on', !analysis.on);
   $('an-body').hidden = !analysis.on;
@@ -464,12 +628,12 @@ function renderAnalysis() {
   const pause = $('an-pause');
   pause.textContent = analysis.paused ? '► Resume' : '❙❙ Pause';
   pause.classList.toggle('on', analysis.paused);
-  pause.disabled = view.thinking;
+  pause.disabled = !here;
   $('an-progress').textContent = analysis.paused ? '' : (analysis.progress ?? '');
 
-  const rows = view.thinking ? [] : analysis.candidates.slice(0, SHOWN_ROWS);
+  const rows = here ? analysis.candidates.slice(0, SHOWN_ROWS) : [];
   let msg = '';
-  if (view.thinking) msg = 'Analysis starts on your move.';
+  if (!here) msg = reviewing() ? 'Step to one of your moves to analyse it.' : 'Analysis starts on your move.';
   else if (analysis.error) msg = analysis.error;
   else if (analysis.paused && !rows.length) msg = 'Paused.';
   else if (!rows.length) msg = analysis.running ? 'Analyzing…' : 'No suggestions.';
@@ -484,7 +648,7 @@ function renderAnalysis() {
     const cp = cell('an-cp', fmtCp(c.cp));
     if (c.cp > 20) cp.classList.add('pos'); else if (c.cp < -20) cp.classList.add('neg');
     li.append(cell('an-rank', i + 1), cell('an-move', c.text), cp, cell('an-prob', c.prob == null || analysis.single ? '' : Math.round(c.prob * 100) + '%'));
-    li.title = 'Click to pick up this piece';
+    if (playing()) li.title = 'Click to pick up this piece';
     return li;
   }));
   $('an-rows').classList.toggle('stale', analysis.paused);
@@ -544,7 +708,7 @@ function stepTo(n) {
 // drawn over them and the rest fade.
 function renderArrows() {
   const svg = $('arrows');
-  const show = analysis.on && !analysis.paused && playing() && !view.thinking && plyShown === null;
+  const show = analysis.on && !analysis.paused && !!target() && boardOnTarget();
   const top = show ? analysis.candidates.slice(0, ARROWS) : [];
   const hovered = show && analysis.hovered ? analysis.candidates.find(c => c.key === analysis.hovered) : null;
   const list = top.map((c, i) => ({ c, opacity: hovered ? 0.18 : [0.8, 0.5, 0.32][i] }));
@@ -579,7 +743,7 @@ function loadMarkers() {
 }
 
 function cycleMarker(sq) {
-  if (!view || view.revealed || view.visible.includes(sq)) return;
+  if (!playing() || view.visible.includes(sq)) return;
   const next = MARKER_CYCLE[(MARKER_CYCLE.indexOf(markers[sq] ?? null) + 1) % MARKER_CYCLE.length];
   if (next) markers[sq] = next; else delete markers[sq];
   store.set(markerKey(), JSON.stringify(markers));
@@ -725,6 +889,7 @@ async function show(next) {
   belief = null;
   syncAnalysis();
   flashes = next.events.filter(e => e.kind === 'captured').map(e => e.square);
+  if (next.result) saveGame(next).then(renderArchive);
   render();
   if (next.thinking) {
     const mine = epoch;
@@ -805,7 +970,7 @@ promotionEl.addEventListener('click', e => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { promotionEl.hidden = true; selected = null; renderBoard(); }
-  const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+  const step = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity }[e.key];
   if (!step || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !promotionEl.hidden) return;
   if (e.target.closest?.('input, select, textarea')) return; // the arrows move the caret or the number there
   e.preventDefault();
@@ -866,6 +1031,26 @@ $('new-game').addEventListener('change', e => {
 
 $('resign').addEventListener('click', resign);
 
+$('archive-list').addEventListener('click', async e => {
+  const open = e.target.closest('[data-open]')?.dataset.open;
+  if (open) { openReview(open); return; }
+  const id = e.target.closest('[data-delete]')?.dataset.delete;
+  if (!id || !confirm('Delete this game?')) return;
+  await deleteGame(id);
+  // A reload would otherwise pick it back up from the server and keep it again.
+  if (store.get('fog-chess:game') === id) store.set('fog-chess:game', '');
+  renderArchive();
+});
+
+$('review-close').addEventListener('click', closeReview);
+
+reviewFog.checked = store.get('fog-chess:review-fog') === '1';
+reviewFog.addEventListener('change', () => {
+  store.set('fog-chess:review-fog', reviewFog.checked ? '1' : '0');
+  render();
+  refreshBelief();
+});
+
 $('an-on').addEventListener('click', () => setAnalysisOn(true));
 $('an-off').addEventListener('click', () => setAnalysisOn(false));
 $('an-pause').addEventListener('click', () => setPaused(!analysis.paused));
@@ -883,7 +1068,7 @@ rowsEl.addEventListener('mouseleave', () => hoverRow(null));
 // suggestion should not spend your turn.
 rowsEl.addEventListener('click', e => {
   const c = analysis.candidates.find(m => m.key === e.target.closest('li')?.dataset.key);
-  if (!c || !view || view.thinking || busy) return;
+  if (!c || !playing() || view.thinking || busy) return;
   selected = c.from;
   renderBoard();
 });
@@ -895,6 +1080,7 @@ $('bw-n').addEventListener('change', e => stepTo(parseInt(e.target.value, 10) ||
 
 // Pick the last game back up after a reload. If there is none (or the server
 // was restarted and forgot it — games live in memory), show the setup card.
+renderArchive();
 (async () => {
   const id = store.get('fog-chess:game');
   if (id) {

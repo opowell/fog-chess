@@ -68,10 +68,26 @@
         </details>
       </section>
 
+      <section id="archive" class="card" hidden>
+        <h2>Past games</h2>
+        <ol id="archive-list" class="archive-list"></ol>
+        <p class="note">Kept in this browser. Open one to step through it and analyse your moves.</p>
+      </section>
+
+      <section id="review" class="card" hidden>
+        <h2>Review</h2>
+        <p id="review-info" class="game-info"></p>
+        <label class="toggle review-fog">
+          <input id="review-fog" type="checkbox">
+          <span>Show only what you could see</span>
+        </label>
+        <button id="review-close" type="button" class="outline">Close</button>
+      </section>
+
       <section id="in-game" class="card" hidden>
         <h2>Game</h2>
         <p id="game-info" class="game-info"></p>
-        <button id="resign" type="button" class="resign">Resign</button>
+        <button id="resign" type="button" class="outline resign">Resign</button>
       </section>
 
       <section id="analysis" class="card analysis" hidden>
@@ -111,7 +127,7 @@
           <span>Show where the enemy might be</span>
         </label>
         <p id="belief-note" class="note"></p>
-        <p class="note">Right-click a dark square (or long-press on touch) to leave yourself a marker.</p>
+        <p id="marker-note" class="note">Right-click a dark square (or long-press on touch) to leave yourself a marker.</p>
       </div>
 
       <div id="moves-card" class="card" hidden>

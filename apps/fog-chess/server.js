@@ -9,6 +9,9 @@
 //   GET  /fog-chess/api/games/:id/belief      → where the enemy might be
 //   GET  /fog-chess/api/games/:id/analysis    → event stream: the AI's ranking
 //                                              of your moves, as it refines
+//   POST /fog-chess/api/reviews               { humanColor, keys } → { id }: a
+//                                              finished game replayed that far,
+//                                              for the belief and analysis above
 
 import { fileURLToPath } from 'url';
 import { mkdirSync } from 'fs';
@@ -48,6 +51,11 @@ export default (router, app) => {
   router.post(base + '/:id/move', handle(req => store.get(req.params.id).playHuman(String(req.body?.key ?? ''))));
 
   router.post(base + '/:id/resign', handle(req => store.get(req.params.id).resign()));
+
+  router.post('/' + app.id + '/api/reviews', handle(req => {
+    const { humanColor, keys } = req.body ?? {};
+    return { id: store.review({ humanColor, keys }).id };
+  }));
 
   router.get(base + '/:id/belief', handle(req => store.get(req.params.id).belief()));
 

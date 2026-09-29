@@ -41,6 +41,7 @@ export const MODES = ['power', 'time'];
 export const DEFAULT_STRENGTH = { mode: 'power', power: 25, timeMs: 2000 };
 const MAX_TIME_MS = 600000; // obscuro-chess's own ceiling for a time limit
 const MAX_GAMES = 50;
+const MAX_REVIEW_PLIES = 2000;
 
 const LETTER = { king: 'K', queen: 'Q', rook: 'R', bishop: 'B', knight: 'N', pawn: '' };
 
@@ -109,7 +110,7 @@ const serialize = fn => {
 
 export class Game {
   constructor({ id, humanColor = 'white', mode = DEFAULT_STRENGTH.mode, power = DEFAULT_STRENGTH.power,
-    timeMs = DEFAULT_STRENGTH.timeMs, agent, agentFactory = opts => new ChessObscuroAgent(opts) } = {}) {
+    timeMs = DEFAULT_STRENGTH.timeMs, agent, agentFactory = opts => new ChessObscuroAgent(opts), review = false } = {}) {
     if (!COLORS.includes(humanColor)) throw new Error('humanColor must be white or black');
     if (!MODES.includes(mode)) throw new Error('mode must be power or time');
     this.id = id;
@@ -127,12 +128,14 @@ export class Game {
       this.strength = { mode, timeMs: ms };
       config = { aiTimeMs: ms };
     }
-    this.agent = agent ?? agentFactory(agentOpts);
+    this.review = review;      // a finished game replayed for analysis: nobody moves in it
+    this.agent = review ? null : agent ?? agentFactory(agentOpts);
     this.touchedAt = Date.now();
     // A fresh players array per game: belief trackers key on its identity.
     const players = [{ id: 'white', name: 'White' }, { id: 'black', name: 'Black' }];
     this.state = FogChess.createInitialState(players, { fogOfWar: true, ...config });
-    this.moves = [];           // [{ color, text }] — AI moves are recorded as hidden (text null)
+    this.moves = [];           // [{ color, text }] — the AI's texts go out only once the game is over
+    this.keys = [];            // every move's FogChess.actionKey, both sides': how a review replays the game
     this.plies = [];           // one snapshot per position, the start first: see snapshot()
     this.events = [];          // what the human learned since their last move
     this.lastHumanMove = null; // { from, to } for highlighting
@@ -189,13 +192,25 @@ export class Game {
   // starts the AI's reply without waiting for it — see waitForAi.
   playHuman(key) {
     this.touchedAt = Date.now();
+    if (this.review) throw Object.assign(new Error('this game is being reviewed, not played'), { status: 409 });
     if (this.result) throw Object.assign(new Error('the game is over'), { status: 409 });
     if (this.toMove !== this.humanColor) throw Object.assign(new Error('it is not your turn'), { status: 409 });
-    const observation = this.observation();
-    const action = FogChess.getLegalActions(observation, this.humanColor)
-      .find(a => FogChess.actionKey(a) === key);
+    const action = this._legalByKey(this.humanColor, key);
     if (!action) throw Object.assign(new Error('illegal move: ' + key), { status: 400 });
+    this._applyHuman(action);
+    this.startAi();
+    return this.view();
+  }
 
+  _legalByKey(color, key) {
+    const observation = FogChess.getVisibleState(this.state, color);
+    return FogChess.getLegalActions(observation, color).find(a => FogChess.actionKey(a) === key);
+  }
+
+  // Everything a human move does to the game, shared by play and replay so a
+  // replayed position carries the very belief the human had at the time.
+  _applyHuman(action) {
+    const observation = this.observation();
     this.beginHumanTurn();
     this._analysisRun++;
     FogChess.onActionCommitted(observation, this.humanColor, action);
@@ -204,6 +219,7 @@ export class Game {
     this.state = FogChess.applyActions(this.state, [{ playerId: this.humanColor, action }]);
     FogChess.onActionObserved(this.observation(), this.humanColor);
     this.moves.push({ color: this.humanColor, text: describeMove(action, piece) });
+    this.keys.push(FogChess.actionKey(action));
     this.lastHumanMove = { from: action.from, to: action.to };
     this.snapshot(action, this.humanColor);
     this.events = [];
@@ -211,8 +227,6 @@ export class Game {
     for (const [id, enemy] of enemiesBefore) {
       if (!enemiesAfter.has(id)) this.events.push({ kind: 'took', square: enemy.position, type: enemy.type });
     }
-    this.startAi();
-    return this.view();
   }
 
   // The human gives up. Allowed while the AI is thinking: its move, when it
@@ -241,10 +255,14 @@ export class Game {
     const action = await this.agent.chooseAction(observation, legal);
     if (this.resigned) return;
     if (!action) throw new Error('the AI found no move');
+    this._applyAi(action);
+    FogChess.onActionObserved(FogChess.getVisibleState(this.state, this.aiColor), this.aiColor);
+  }
 
+  _applyAi(action) {
+    const piece = this.state.board[action.from];
     const before = piecesOf(this.state.board, this.humanColor);
     this.state = FogChess.applyActions(this.state, [{ playerId: this.aiColor, action }]);
-    FogChess.onActionObserved(FogChess.getVisibleState(this.state, this.aiColor), this.aiColor);
     const after = piecesOf(this.state.board, this.humanColor);
 
     // The only thing the AI's move tells the human directly: which of their
@@ -252,9 +270,25 @@ export class Game {
     for (const [id, piece] of before) {
       if (!after.has(id)) this.events.push({ kind: 'captured', square: piece.position, type: piece.type });
     }
-    this.moves.push({ color: this.aiColor, text: null });
+    this.moves.push({ color: this.aiColor, text: describeMove(action, piece) });
+    this.keys.push(FogChess.actionKey(action));
     this.snapshot(action, this.aiColor);
     this.beginHumanTurn();
+  }
+
+  // A finished game played back from its keys (the view's `keys` once it is
+  // over) up to `ply`, for analysing the position the human faced there. The
+  // human's belief is fed exactly as it was in play; the AI's is never needed.
+  static replay({ id, humanColor, keys }) {
+    const game = new Game({ id, humanColor, review: true });
+    for (const key of keys) {
+      if (game.result) throw Object.assign(new Error('the game was over before ' + key), { status: 400 });
+      const color = game.toMove;
+      const action = game._legalByKey(color, String(key));
+      if (!action) throw Object.assign(new Error(`illegal move for ${color}: ${key}`), { status: 400 });
+      if (color === game.humanColor) game._applyHuman(action); else game._applyAi(action);
+    }
+    return game;
   }
 
   async waitForAi() {
@@ -288,7 +322,9 @@ export class Game {
       })),
       lastMove: this.lastHumanMove,
       events: this.events,
-      moves: this.moves,
+      // Where the AI went is what the fog hides, until the game is over.
+      moves: result ? this.moves : this.moves.map(m => (m.color === this.aiColor ? { ...m, text: null } : m)),
+      keys: result ? this.keys : undefined,
       history: this.history(result),
       error: this.error,
     };
@@ -297,11 +333,13 @@ export class Game {
   // Every position of the game so far, one per ply, the start first. While the
   // game is on, each is what the human saw of it then, and the AI's moves stay
   // unmarked. Once it is over the fog has nothing left to hide, so each is the
-  // true board with the move that made it.
+  // true board with the move that made it, and what the human saw goes along
+  // as `seen` for looking back at the game through the fog.
   history(result = this.result) {
-    return this.plies.map(ply => result
-      ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move }
-      : { board: ply.seen, visible: ply.visible, revealed: false, lastMove: ply.color === this.humanColor ? ply.move : null });
+    return this.plies.map(ply => {
+      const seen = { board: ply.seen, visible: ply.visible, revealed: false, lastMove: ply.color === this.humanColor ? ply.move : null };
+      return result ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move, seen } : seen;
+    });
   }
 
   // Obscuro's read-only analysis of the human's move: the same belief walk the
@@ -421,12 +459,32 @@ export class GameStore {
 
   create({ humanColor = 'white', ...strength } = {}) {
     if (humanColor === 'random') humanColor = Math.random() < 0.5 ? 'white' : 'black';
-    const id = Date.now().toString(36) + '-' + (this.nextId++).toString(36);
-    const game = new Game({ id, humanColor, ...strength, agentFactory: this.agentFactory });
-    this.games.set(id, game);
-    this._evict();
+    const game = new Game({ id: this._newId(), humanColor, ...strength, agentFactory: this.agentFactory });
+    this._add(game);
     game.startAi(); // the AI opens when the human plays black
     return game;
+  }
+
+  // A finished game replayed to where the human was about to play `keys`'s
+  // next move, as a game the analysis and belief endpoints can read. The same
+  // position asked for again gets the same game, and so the same walk to resume.
+  review({ humanColor, keys }) {
+    if (!COLORS.includes(humanColor)) throw new Error('humanColor must be white or black');
+    if (!Array.isArray(keys) || keys.length > MAX_REVIEW_PLIES) throw new Error('keys must be a list of moves');
+    const position = humanColor + ':' + keys.join(' ');
+    const known = [...this.games.values()].find(g => g.review && g.position === position);
+    if (known) return this.get(known.id);
+    const game = Game.replay({ id: this._newId(), humanColor, keys });
+    game.position = position;
+    this._add(game);
+    return game;
+  }
+
+  _newId() { return Date.now().toString(36) + '-' + (this.nextId++).toString(36); }
+
+  _add(game) {
+    this.games.set(game.id, game);
+    this._evict();
   }
 
   get(id) {
@@ -436,10 +494,11 @@ export class GameStore {
     return game;
   }
 
-  // Games live in memory only; keep the most recently touched few.
+  // Games live in memory only; keep the most recently touched few. Reviews go
+  // first: they are cheap to replay, and stepping through one makes many.
   _evict() {
     if (this.games.size <= MAX_GAMES) return;
-    const oldest = [...this.games.values()].sort((a, b) => a.touchedAt - b.touchedAt);
+    const oldest = [...this.games.values()].sort((a, b) => (b.review - a.review) || (a.touchedAt - b.touchedAt));
     for (const game of oldest.slice(0, this.games.size - MAX_GAMES)) {
       if (!game.pending) this.games.delete(game.id);
     }

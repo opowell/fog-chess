@@ -61,6 +61,14 @@ submodules itself the first time it runs.
   to leave yourself a reminder of what you think is there.
 - **Resuming:** a reload picks your game back up. Games live in the server's
   memory, so restarting the server ends them.
+- **Past games:** every finished game is kept in your browser (IndexedDB), and
+  listed under the new-game form. Open one to step through it with the arrow
+  keys (Home and End jump to the start and the end), seeing the whole board or
+  only what you could see at the time. On each position where you were to
+  move, the analysis and the enemy shading work as they did in the game: the
+  server replays the game that far, so both are built from what you knew then.
+  The list lives in the browser, so it is not shared between browsers, and
+  clearing the site's data empties it.
 
 When the game ends the fog lifts and the whole board is shown.
 
@@ -68,7 +76,7 @@ When the game ends the fog lifts and the whole board is shown.
 
 | Path | What it is |
 | --- | --- |
-| `apps/fog-chess/` | The app: the page (`index.html`, `main.js`, `style.css`), and the server side (`server.js`, `games.js`) |
+| `apps/fog-chess/` | The app: the page (`index.html`, `main.js`, `style.css`, and `archive.js` for past games), and the server side (`server.js`, `games.js`) |
 | `vendor/jas/` | [JAS](https://github.com/opowell/jas), the small app server that hosts it (submodule) |
 | `vendor/obscuro-chess/` | [obscuro-chess](https://github.com/opowell/obscuro-chess): the fog-chess rules, the Obscuro AI and the Stockfish engine it uses (submodule, which carries [obscuro-ai](https://github.com/opowell/obscuro-ai) inside it) |
 | `start.sh`, `start.cmd` | Run JAS on this repo's `apps/` folder |
@@ -96,6 +104,13 @@ Everything is under `/fog-chess/api/games`:
 | `POST /:id/move` with `{ key }` | The view after your move. The AI starts its reply at once. `key` is one of the view's `legal[].key` |
 | `GET /:id/belief` | For each hidden square, the chance of an enemy piece there and its likeliest type |
 | `GET /:id/analysis` | A server-sent event stream of the AI's ranking of your moves as it refines, one `data:` frame per step and a last one with `done: true`. Your move only; a move or hanging up stops it |
+
+Once a game is over its view also carries the AI's moves, every move's `key`
+and, on each ply of `history`, what you saw of it (`seen`). With those,
+`POST /fog-chess/api/reviews` with `{ humanColor, keys }` replays a finished
+game through those keys and returns `{ id }`. That id's `belief` and
+`analysis` then answer for the position you faced there. Moves cannot be
+played in a replayed game.
 
 ### Running it inside a JAS you already have
 

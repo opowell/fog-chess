@@ -241,3 +241,42 @@ test('the history holds a position per ply, as the human saw it until the game e
   assert.equal(Object.values(view.history[2].board).filter(p => p.color === 'black').length, 16);
   assert.ok(view.history[2].lastMove);
 });
+
+test('the AI\'s moves and every move key stay hidden until the game ends', async () => {
+  const game = new GameStore().create({ humanColor: 'white', power: 0 });
+  game.playHuman('e2e4');
+  let view = await game.waitForAi();
+  assert.equal(view.moves[1].text, null);
+  assert.equal(view.keys, undefined);
+  view = game.resign();
+  assert.ok(view.moves[1].text);
+  assert.equal(view.keys.length, 2);
+  assert.equal(view.keys[0], 'e2e4');
+  assert.ok(view.history.every(ply => ply.seen && !ply.seen.revealed));
+  for (const ply of view.history) assertNoLeak({ ...ply.seen, humanColor: view.humanColor });
+});
+
+test('a review replays a finished game to the human\'s belief at the time', async () => {
+  const store = new GameStore();
+  const game = store.create({ humanColor: 'black', power: 0 });
+  let view = await game.waitForAi();
+  const beliefs = [];
+  for (let i = 0; i < 6 && !view.result; i++) {
+    beliefs.push({ ply: view.moves.length, belief: game.belief() });
+    view = game.playHuman(pick(view.legal).key);
+    view = await game.waitForAi();
+  }
+  if (!view.result) view = game.resign();
+
+  for (const { ply, belief } of beliefs) {
+    const review = store.review({ humanColor: 'black', keys: view.keys.slice(0, ply) });
+    assert.deepEqual(review.belief(), belief, `belief at ply ${ply}`);
+    assert.deepEqual(review.history().at(-1).board, view.history[ply].seen.board);
+    assert.equal(store.review({ humanColor: 'black', keys: view.keys.slice(0, ply) }), review, 'the same position is the same game');
+  }
+  const review = store.review({ humanColor: 'black', keys: view.keys.slice(0, beliefs[0].ply) });
+  assert.throws(() => review.playHuman(review.view().legal[0].key), /reviewed/);
+  assert.equal(review.agent, null);
+  assert.throws(() => store.review({ humanColor: 'black', keys: ['e2e5'] }), /illegal move for white/);
+  assert.throws(() => store.review({ humanColor: 'green', keys: [] }), /humanColor/);
+});
