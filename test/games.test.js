@@ -194,3 +194,26 @@ test('a pawn push onto a dark square is not offered, to play or to analyze', asy
   assert.ok(result.candidates.length > 0);
   assert.ok(!result.candidates.some(c => c.key === 'd4d5'));
 });
+
+test('the history holds a position per ply, as the human saw it until the game ends', async () => {
+  const game = new GameStore().create({ humanColor: 'white', power: 0 });
+  let view = game.playHuman('e2e4');
+  assert.equal(view.history.length, 2);
+  assert.deepEqual(view.history[1].lastMove, { from: 'e2', to: 'e4' });
+  assert.equal(view.history[1].board.e4.type, 'pawn');
+  assert.equal(view.history[1].board.e2, undefined);
+
+  view = await game.waitForAi();
+  view = game.playHuman(pick(view.legal).key);
+  view = await game.waitForAi();
+  assert.equal(view.history.length, view.moves.length + 1);
+  // The AI's moves are not marked, and no ply shows an enemy piece out of sight.
+  assert.equal(view.history[2].lastMove, null);
+  for (const ply of view.history) assertNoLeak({ ...ply, humanColor: view.humanColor });
+  assert.deepEqual(view.history.at(-1).board, view.board);
+
+  view = game.resign();
+  assert.ok(view.history.every(ply => ply.revealed));
+  assert.equal(Object.values(view.history[2].board).filter(p => p.color === 'black').length, 16);
+  assert.ok(view.history[2].lastMove);
+});

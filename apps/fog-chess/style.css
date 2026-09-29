@@ -342,6 +342,9 @@ button[type="submit"] {
 .moves li { display: contents; }
 .moves .num { color: var(--muted); }
 .moves .hidden { color: var(--muted); font-style: italic; }
+.moves [data-ply] { cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.moves [data-ply]:hover { background: var(--row-hover); }
+.moves .current, .moves .current:hover { background: var(--last); }
 .moves:empty::before { content: "No moves yet."; grid-column: 1 / -1; color: var(--muted); }
 
 .rules summary { cursor: pointer; font-weight: 600; }

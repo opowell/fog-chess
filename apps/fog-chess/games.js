@@ -130,6 +130,7 @@ export class Game {
     const players = [{ id: 'white', name: 'White' }, { id: 'black', name: 'Black' }];
     this.state = FogChess.createInitialState(players, { fogOfWar: true, ...config });
     this.moves = [];           // [{ color, text }] — AI moves are recorded as hidden (text null)
+    this.plies = [];           // one snapshot per position, the start first: see snapshot()
     this.events = [];          // what the human learned since their last move
     this.lastHumanMove = null; // { from, to } for highlighting
     this.pending = null;       // the AI's move in flight, if any
@@ -138,7 +139,22 @@ export class Game {
     this._humanTurnSeen = null;
     this._analysisRun = 0;     // bumped to stop the analysis in flight, if any
     this._analysisWalk = null; // { turn, walkState }: where a stopped analysis got to
+    this.snapshot(null, null);
     this.beginHumanTurn();
+  }
+
+  // Record the position just reached, for stepping back through the game: what
+  // the human could see of it, and the true board with the move that led to it.
+  // Only the first half goes out while the game is on (see history()).
+  snapshot(move, color) {
+    const observation = this.observation();
+    this.plies.push({
+      seen: boardFor(observation.board),
+      visible: observation.visibleSquares,
+      board: boardFor(this.state.board),
+      move: move && { from: move.from, to: move.to },
+      color,
+    });
   }
 
   get toMove() { return this.state.activePlayers[0]; }
@@ -185,6 +201,7 @@ export class Game {
     this.state = FogChess.applyActions(this.state, [{ playerId: this.humanColor, action }]);
     this.moves.push({ color: this.humanColor, text: describeMove(action, piece) });
     this.lastHumanMove = { from: action.from, to: action.to };
+    this.snapshot(action, this.humanColor);
     this.events = [];
     const enemiesAfter = piecesOf(this.state.board, this.aiColor);
     for (const [id, enemy] of enemiesBefore) {
@@ -231,6 +248,7 @@ export class Game {
       if (!after.has(id)) this.events.push({ kind: 'captured', square: piece.position, type: piece.type });
     }
     this.moves.push({ color: this.aiColor, text: null });
+    this.snapshot(action, this.aiColor);
     this.beginHumanTurn();
   }
 
@@ -266,8 +284,19 @@ export class Game {
       lastMove: this.lastHumanMove,
       events: this.events,
       moves: this.moves,
+      history: this.history(result),
       error: this.error,
     };
+  }
+
+  // Every position of the game so far, one per ply, the start first. While the
+  // game is on, each is what the human saw of it then, and the AI's moves stay
+  // unmarked. Once it is over the fog has nothing left to hide, so each is the
+  // true board with the move that made it.
+  history(result = this.result) {
+    return this.plies.map(ply => result
+      ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move }
+      : { board: ply.seen, visible: ply.visible, revealed: false, lastMove: ply.color === this.humanColor ? ply.move : null });
   }
 
   // Obscuro's read-only analysis of the human's move: the same belief walk the

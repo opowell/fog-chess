@@ -25,6 +25,7 @@ let busy = false; // a move is on its way to the server
 let epoch = 0; // bumped on every new game, so a late reply for an old one is dropped
 let drag = null; // a piece being dragged: { from, pointerId, x, y, ghost, over }
 let suppressClick = false; // the click that ends a drag is not a second tap
+let plyShown = null; // stepping back through the game: the index into view.history on the board, or null for now
 
 const store = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
@@ -74,21 +75,27 @@ function renderPanels() {
   }
 }
 
+// The position on the board when stepping back through the game (see
+// stepHistory), or null while it shows the game as it stands.
+const pastPly = () => (plyShown === null ? null : view?.history?.[plyShown] ?? null);
+
 function renderBoard() {
-  const visible = new Set(view?.visible ?? []);
-  const legal = view?.legal ?? [];
+  const past = pastPly();
+  const shown = past ?? view;
+  const visible = new Set(shown?.visible ?? []);
+  const legal = past ? [] : view?.legal ?? [];
   const targets = new Set(selected ? legal.filter(m => m.from === selected).map(m => m.to) : []);
   const movable = new Set(legal.map(m => m.from));
   const order = squaresInOrder();
-  const ghosts = new Map((currentWorld()?.hidden ?? []).map(h => [h.sq, TYPE_OF_LETTER[h.type]]));
+  const ghosts = new Map(past ? [] : (currentWorld()?.hidden ?? []).map(h => [h.sq, TYPE_OF_LETTER[h.type]]));
   const fragment = document.createDocumentFragment();
 
   order.forEach((sq, i) => {
     const file = sq[0];
     const rank = Number(sq[1]);
     const isDark = (FILES.indexOf(file) + rank) % 2 === 0;
-    const fogged = !!view && !view.revealed && !visible.has(sq);
-    const piece = view?.board[sq];
+    const fogged = !!shown && !shown.revealed && !visible.has(sq);
+    const piece = shown?.board[sq];
 
     const cell = document.createElement('button');
     cell.type = 'button';
@@ -102,8 +109,8 @@ function renderBoard() {
     if (sq === selected) cell.classList.add('selected');
     if (drag?.ghost && sq === drag.from) cell.classList.add('drag-from');
     if (drag?.ghost && sq === drag.over) cell.classList.add('drag-over');
-    if (view?.lastMove && (sq === view.lastMove.from || sq === view.lastMove.to)) cell.classList.add('last');
-    if (flashes.includes(sq)) cell.classList.add('flash');
+    if (shown?.lastMove && (sq === shown.lastMove.from || sq === shown.lastMove.to)) cell.classList.add('last');
+    if (!past && flashes.includes(sq)) cell.classList.add('flash');
 
     let label = sq;
     if (piece) {
@@ -112,14 +119,14 @@ function renderBoard() {
     } else if (fogged && ghosts.has(sq)) {
       cell.append(img(pieceSrc(view.aiColor, ghosts.get(sq)), 'piece ghost'));
       label += `, hidden, on the analysis board: ${ghosts.get(sq)}`;
-    } else if (fogged && markers[sq]) {
+    } else if (fogged && !past && markers[sq]) {
       cell.append(img(pieceSrc(view.aiColor, markers[sq]), 'piece marker'));
       label += `, hidden, your marker: ${markers[sq]}`;
     } else if (fogged) {
       label += ', hidden';
     }
 
-    const cellBelief = fogged && belief?.squares?.[sq];
+    const cellBelief = fogged && !past && belief?.squares?.[sq];
     if (cellBelief && cellBelief.p >= 0.02) {
       cell.classList.add('belief');
       cell.style.setProperty('--p', (0.08 + cellBelief.p * 0.42).toFixed(3));
@@ -175,6 +182,7 @@ function resultText(result) {
 function renderStatus() {
   statusEl.classList.remove('thinking');
   if (!view) { statusEl.textContent = 'Start a new game.'; return; }
+  if (pastPly()) { statusEl.textContent = historyText(); return; }
   const news = view.events.map(eventText).filter(Boolean).join(' ');
   if (view.result) {
     statusEl.textContent = resultText(view.result) + ' The whole board is shown.';
@@ -188,6 +196,15 @@ function renderStatus() {
   }
 }
 
+// Where the board is when stepping back, in the move list's own words.
+function historyText() {
+  const move = view.moves[plyShown - 1];
+  const where = move
+    ? `after ${Math.ceil(plyShown / 2)}.${move.color === 'white' ? '' : '..'} ${move.text ?? 'the opponent’s hidden move'}`
+    : 'the start';
+  return `Looking back: ${where}. ← → step a move at a time, back to the game at the end.`;
+}
+
 function renderMoves() {
   const list = $('moves');
   const rows = [];
@@ -198,20 +215,45 @@ function renderMoves() {
     const num = document.createElement('span');
     num.className = 'num';
     num.textContent = i / 2 + 1 + '.';
-    li.append(num, moveCell(moves[i]), moveCell(moves[i + 1]));
+    li.append(num, moveCell(moves[i], i + 1), moveCell(moves[i + 1], i + 2));
     rows.push(li);
   }
   list.replaceChildren(...rows);
-  list.scrollTop = list.scrollHeight;
+  const current = list.querySelector('.current');
+  if (current) current.scrollIntoView({ block: 'nearest' });
+  else list.scrollTop = list.scrollHeight;
 }
 
-function moveCell(move) {
+// ply is the position the move leads to, its index in view.history.
+function moveCell(move, ply) {
   const el = document.createElement('span');
   if (!move) return el;
   if (move.text) el.textContent = move.text;
-  else { el.textContent = 'hidden'; el.className = 'hidden'; }
+  else { el.textContent = 'hidden'; el.classList.add('hidden'); }
+  el.dataset.ply = ply;
+  el.title = 'Show the board after this move';
+  if (ply === plyShown) el.classList.add('current');
   return el;
 }
+
+// --- stepping through the game ---------------------------------------------
+//
+// The arrow keys walk the board back and forth a ply at a time, through what
+// you saw at each point (the whole board, once the game is over). Stepping
+// forward off the last ply is back to the game; nothing can be played until
+// then.
+
+function showPly(ply) {
+  const last = (view?.history?.length ?? 0) - 1;
+  if (last < 1) return;
+  ply = Math.max(0, Math.min(last, ply));
+  plyShown = ply === last ? null : ply;
+  selected = null;
+  endDrag();
+  render();
+}
+
+const stepHistory = delta => showPly((plyShown ?? (view?.history?.length ?? 0) - 1) + delta);
 
 // --- belief overlay ---------------------------------------------------------
 
@@ -476,7 +518,7 @@ function stepTo(n) {
 // drawn over them and the rest fade.
 function renderArrows() {
   const svg = $('arrows');
-  const show = analysis.on && !analysis.paused && playing() && !view.thinking;
+  const show = analysis.on && !analysis.paused && playing() && !view.thinking && plyShown === null;
   const top = show ? analysis.candidates.slice(0, ARROWS) : [];
   const hovered = show && analysis.hovered ? analysis.candidates.find(c => c.key === analysis.hovered) : null;
   const list = top.map((c, i) => ({ c, opacity: hovered ? 0.18 : [0.8, 0.5, 0.32][i] }));
@@ -520,7 +562,7 @@ function cycleMarker(sq) {
 
 // --- moving -----------------------------------------------------------------
 
-const canMove = () => !!view && !view.result && !view.thinking && !busy;
+const canMove = () => !!view && !view.result && !view.thinking && !busy && plyShown === null;
 
 // Plays the selected piece to sq if that is a legal move; true if it did.
 function moveSelectedTo(sq) {
@@ -679,6 +721,7 @@ async function newGame(color, strength) {
   stopAnalysis();
   busy = false;
   selected = null;
+  plyShown = null;
   promotionEl.hidden = true;
   const game = await api(API, { method: 'POST', body: { color, ...strength } });
   store.set('fog-chess:game', game.id);
@@ -736,6 +779,16 @@ promotionEl.addEventListener('click', e => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { promotionEl.hidden = true; selected = null; renderBoard(); }
+  const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+  if (!step || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !promotionEl.hidden) return;
+  if (e.target.closest?.('input, select, textarea')) return; // the arrows move the caret or the number there
+  e.preventDefault();
+  stepHistory(step);
+});
+
+$('moves').addEventListener('click', e => {
+  const ply = e.target.closest('[data-ply]')?.dataset.ply;
+  if (ply) showPly(Number(ply));
 });
 
 // AI strength: a mode (a fixed amount of reasoning, or a time limit) and a
