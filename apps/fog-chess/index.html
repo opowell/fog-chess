@@ -90,6 +90,20 @@
         <button id="resign" type="button" class="outline resign">Resign</button>
       </section>
 
+      <section id="taken" class="card" hidden>
+        <h2>Taken</h2>
+        <div class="taken-row">
+          <span class="taken-label">You took</span>
+          <span id="taken-by-you" class="taken-pieces"></span>
+          <span id="edge-you" class="taken-edge"></span>
+        </div>
+        <div class="taken-row">
+          <span class="taken-label">You lost</span>
+          <span id="taken-from-you" class="taken-pieces"></span>
+          <span id="edge-ai" class="taken-edge"></span>
+        </div>
+      </section>
+
       <section id="analysis" class="card analysis" hidden>
         <header class="an-head">
           <h2>Analysis <span id="an-spinner" class="spinner" title="Analyzing…" hidden></span></h2>
@@ -127,7 +141,7 @@
           <span>Show where the enemy might be</span>
         </label>
         <p id="belief-note" class="note"></p>
-        <p id="marker-note" class="note">Right-click a dark square (or long-press on touch) to leave yourself a marker.</p>
+        <p id="marker-note" class="note">Click a dark square to leave yourself a piece marker; click again to change it. Right-click any square (or long-press on touch) to ring it in yellow.</p>
       </div>
 
       <div id="moves-card" class="card" hidden>

@@ -185,6 +185,15 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .piece.marker { opacity: 0.35; filter: grayscale(0.3); }
 .piece.revealed-hidden { opacity: 0.55; }
 
+.circle {
+  position: absolute;
+  width: 86%;
+  height: 86%;
+  border-radius: 50%;
+  border: max(3px, 0.6cqw) solid rgba(255, 221, 0, 0.85);
+  pointer-events: none;
+}
+
 .sq.target::after {
   content: "";
   position: absolute;
@@ -391,6 +400,17 @@ button[type="submit"] {
 .archive-list li:hover .archive-delete, .archive-delete:focus-visible { opacity: 1; }
 .archive-delete:hover { color: var(--bad); }
 @media (hover: none) { .archive-delete { opacity: 1; } }
+
+.taken-row { display: grid; grid-template-columns: 5.2em 1fr auto; align-items: center; gap: 8px; min-height: 28px; }
+.taken-row + .taken-row { margin-top: 4px; }
+.taken-label { font-size: 13px; color: var(--muted); }
+.taken-pieces { display: flex; flex-wrap: wrap; align-items: center; row-gap: 2px; }
+.taken-pieces:empty::before { content: "Nothing yet"; font-size: 13px; color: var(--muted); }
+.taken-pieces img { width: 24px; height: 24px; }
+/* Pieces of a kind overlap, like a stack; a new kind starts a little apart. */
+.taken-pieces img + img { margin-left: -12px; }
+.taken-pieces img.new-kind { margin-left: 2px; }
+.taken-edge { font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .rules summary { cursor: pointer; font-weight: 600; }
 .rules ul { margin: 10px 0 0; padding-left: 18px; }

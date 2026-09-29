@@ -242,6 +242,28 @@ test('the history holds a position per ply, as the human saw it until the game e
   assert.ok(view.history[2].lastMove);
 });
 
+test('each ply of the history says what it captured, on both sides', async () => {
+  // 1.e4 d5 2.exd5 Qxd5: a pawn each.
+  const replies = ['d7d5', 'd8d5'];
+  const agentFactory = () => ({
+    chooseAction: async (_, legal) => {
+      const key = replies.shift();
+      return legal.find(a => FogChess.actionKey(a) === key);
+    },
+  });
+  const game = new GameStore({ agentFactory }).create({ humanColor: 'white', power: 0 });
+  game.playHuman('e2e4');
+  await game.waitForAi();
+  game.playHuman('e4d5');
+  let view = await game.waitForAi();
+  assert.deepEqual(view.history.map(ply => ply.captured), [
+    [], [], [], [{ type: 'pawn', color: 'black' }], [{ type: 'pawn', color: 'white' }],
+  ]);
+  view = game.resign();
+  assert.deepEqual(view.history[3].captured, [{ type: 'pawn', color: 'black' }]);
+  assert.deepEqual(view.history[3].seen.captured, [{ type: 'pawn', color: 'black' }]);
+});
+
 test('the AI\'s moves and every move key stay hidden until the game ends', async () => {
   const game = new GameStore().create({ humanColor: 'white', power: 0 });
   game.playHuman('e2e4');

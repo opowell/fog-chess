@@ -12,6 +12,8 @@ const PIECE_FILE = { king: 'K', queen: 'Q', rook: 'R', bishop: 'B', knight: 'N',
 const TYPE_OF_LETTER = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
 const MARKER_CYCLE = [null, 'pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
 const PROMOTIONS = ['queen', 'knight', 'rook', 'bishop'];
+const TAKEN_ORDER = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
+const VALUE = { pawn: 1, knight: 3, bishop: 3, rook: 5, queen: 9, king: 0 };
 
 const $ = id => document.getElementById(id);
 const boardEl = $('board');
@@ -24,6 +26,7 @@ const reviewFog = $('review-fog');
 let view = null;
 let selected = null;
 let markers = {};
+let circles = new Set(); // squares ringed in yellow
 let belief = null;
 let flashes = [];
 let busy = false; // a move is on its way to the server
@@ -91,6 +94,7 @@ function render() {
   renderStatus();
   renderMoves();
   renderPanels();
+  renderTaken();
   renderAnalysis();
 }
 
@@ -185,6 +189,13 @@ function renderBoard() {
       label += `, hidden, your marker: ${markers[sq]}`;
     } else if (fogged) {
       label += ', hidden';
+    }
+
+    if (circles.has(sq)) {
+      const ring = document.createElement('span');
+      ring.className = 'circle';
+      cell.append(ring);
+      label += ', circled';
     }
 
     const cellBelief = fogged && boardOnTarget() && belief?.squares?.[sq];
@@ -305,6 +316,52 @@ function moveCell(move, ply) {
   return el;
 }
 
+// --- taken pieces -----------------------------------------------------------
+//
+// Everything captured up to the ply on the board. Both sides' captures are
+// things you know: you see what you take, and you see your own pieces vanish.
+
+// What the move to ply i captured. Games kept before plies carried their
+// captures are over, so their true boards show it: whatever the side not
+// moving has fewer of (white moves first, so odd plies are white's).
+function capturedAt(i) {
+  const ply = view.history[i];
+  if (ply.captured) return ply.captured;
+  if (!ply.revealed) return [];
+  const color = i % 2 ? 'black' : 'white';
+  const count = board => {
+    const n = {};
+    for (const p of Object.values(board)) if (p.color === color) n[p.type] = (n[p.type] ?? 0) + 1;
+    return n;
+  };
+  const before = count(view.history[i - 1].board), after = count(ply.board);
+  return Object.entries(before).flatMap(([type, n]) => Array(Math.max(0, n - (after[type] ?? 0))).fill({ type, color }));
+}
+
+function renderTaken() {
+  const card = $('taken');
+  card.hidden = !playing() && !reviewing();
+  if (card.hidden) return;
+  const taken = { [view.humanColor]: [], [view.aiColor]: [] };
+  for (let i = 1; i <= plyOnBoard(); i++) {
+    for (const p of capturedAt(i)) taken[p.color].push(p.type);
+  }
+  const worth = types => types.reduce((sum, type) => sum + VALUE[type], 0);
+  const edge = worth(taken[view.aiColor]) - worth(taken[view.humanColor]);
+  const row = (color, el) => {
+    const types = taken[color].sort((a, b) => TAKEN_ORDER.indexOf(a) - TAKEN_ORDER.indexOf(b));
+    el.replaceChildren(...types.map((type, i) => {
+      const piece = img(pieceSrc(color, type), types[i - 1] && types[i - 1] !== type ? 'new-kind' : '');
+      piece.alt = `${color} ${type}`;
+      return piece;
+    }));
+  };
+  row(view.aiColor, $('taken-by-you'));
+  row(view.humanColor, $('taken-from-you'));
+  $('edge-you').textContent = edge > 0 ? `+${edge}` : '';
+  $('edge-ai').textContent = edge < 0 ? `+${-edge}` : '';
+}
+
 // --- stepping through the game ---------------------------------------------
 //
 // The arrow keys walk the board back and forth a ply at a time, through what
@@ -361,6 +418,7 @@ async function openReview(id) {
   if (!record) { renderArchive(); return; }
   leaveGame();
   view = { ...record, review: true };
+  loadMarkers();
   syncAnalysis();
   render();
   startAnalysis();
@@ -384,6 +442,7 @@ function leaveGame() {
   plyShown = null;
   belief = null;
   markers = {};
+  circles = new Set();
   flashes = [];
   promotionEl.hidden = true;
 }
@@ -734,19 +793,35 @@ function renderArrows() {
   }));
 }
 
-// --- markers ----------------------------------------------------------------
+// --- markers and circles -----------------------------------------------------
+//
+// Your own notes on the board, kept per game in this browser: a guessed piece
+// on a dark square, and yellow rings on any square, the way the Battle
+// Simulator draws them. A ring is about the square, not the position, so it
+// stays put as you step back through the game or review it.
 
 const markerKey = () => `fog-chess:markers:${view.id}`;
+const circleKey = () => `fog-chess:circles:${view.id}`;
 
 function loadMarkers() {
   try { markers = JSON.parse(store.get(markerKey()) ?? '{}') ?? {}; } catch { markers = {}; }
+  try { circles = new Set(JSON.parse(store.get(circleKey()) ?? '[]')); } catch { circles = new Set(); }
 }
 
+// True if sq took a marker: a dark square in the game as it stands.
 function cycleMarker(sq) {
-  if (!playing() || view.visible.includes(sq)) return;
+  if (!playing() || plyShown !== null || view.visible.includes(sq)) return false;
   const next = MARKER_CYCLE[(MARKER_CYCLE.indexOf(markers[sq] ?? null) + 1) % MARKER_CYCLE.length];
   if (next) markers[sq] = next; else delete markers[sq];
   store.set(markerKey(), JSON.stringify(markers));
+  renderBoard();
+  return true;
+}
+
+function toggleCircle(sq) {
+  if (!view) return;
+  if (!circles.delete(sq)) circles.add(sq);
+  store.set(circleKey(), JSON.stringify([...circles]));
   renderBoard();
 }
 
@@ -810,6 +885,7 @@ function endDrag() {
 
 boardEl.addEventListener('pointerdown', e => {
   suppressClick = false;
+  pressHandled = false;
   if (e.button !== 0 || !e.isPrimary || !canMove()) return;
   const sq = e.target.closest('.sq')?.dataset.sq;
   if (!sq || !view.legal.some(m => m.from === sq)) return;
@@ -940,25 +1016,39 @@ async function resign() {
 
 // --- wiring -----------------------------------------------------------------
 
+// With nothing picked up, a dark square takes a marker; otherwise a click plays
+// or picks up, and anywhere else puts the piece down.
 boardEl.addEventListener('click', e => {
   if (suppressClick) { suppressClick = false; return; }
   const sq = e.target.closest('.sq')?.dataset.sq;
-  if (sq) onSquare(sq);
+  if (!sq || (!selected && cycleMarker(sq))) return;
+  onSquare(sq);
 });
+
+// Right-click rings a square, and long-press does on touch screens. Some of
+// those fire contextmenu on a long press as well, so one press rings once.
+let pressTimer = null;
+let pressHandled = false;
+function pressCircle(sq) {
+  clearTimeout(pressTimer);
+  pressTimer = null;
+  if (pressHandled) return;
+  pressHandled = true;
+  toggleCircle(sq);
+}
 
 boardEl.addEventListener('contextmenu', e => {
   const sq = e.target.closest('.sq')?.dataset.sq;
   if (!sq) return;
   e.preventDefault();
-  cycleMarker(sq);
+  pressCircle(sq);
 });
 
-// Long-press places a marker on touch screens, where there is no right-click.
-let pressTimer = null;
 boardEl.addEventListener('touchstart', e => {
   const sq = e.target.closest('.sq')?.dataset.sq;
   if (!sq) return;
-  pressTimer = setTimeout(() => { pressTimer = null; cycleMarker(sq); }, 500);
+  // The finger lifting may still count as a tap, which must not also mark or move.
+  pressTimer = setTimeout(() => { suppressClick = true; pressCircle(sq); }, 500);
 }, { passive: true });
 for (const type of ['touchend', 'touchmove', 'touchcancel']) {
   boardEl.addEventListener(type, () => { clearTimeout(pressTimer); pressTimer = null; });
@@ -1025,7 +1115,7 @@ $('new-game').addEventListener('submit', e => {
 // too, since the setup card is already asking about the next one.
 $('new-game').addEventListener('change', e => {
   if (e.target.name !== 'color' || playing()) return;
-  if (view) { view = null; belief = null; markers = {}; selected = null; }
+  if (view) { view = null; belief = null; markers = {}; circles = new Set(); selected = null; }
   render();
 });
 

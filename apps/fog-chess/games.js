@@ -151,8 +151,10 @@ export class Game {
 
   // Record the position just reached, for stepping back through the game: what
   // the human could see of it, and the true board with the move that led to it.
-  // Only the first half goes out while the game is on (see history()).
-  snapshot(move, color) {
+  // Only the first half goes out while the game is on (see history()). What the
+  // move captured goes out either way: the human sees what they take, and sees
+  // their own pieces vanish.
+  snapshot(move, color, captured = []) {
     const observation = this.observation();
     this.plies.push({
       seen: boardFor(observation.board),
@@ -160,6 +162,7 @@ export class Game {
       board: boardFor(this.state.board),
       move: move && { from: move.from, to: move.to },
       color,
+      captured: captured.map(piece => ({ type: piece.type, color: piece.ownerId })),
     });
   }
 
@@ -221,12 +224,10 @@ export class Game {
     this.moves.push({ color: this.humanColor, text: describeMove(action, piece) });
     this.keys.push(FogChess.actionKey(action));
     this.lastHumanMove = { from: action.from, to: action.to };
-    this.snapshot(action, this.humanColor);
-    this.events = [];
     const enemiesAfter = piecesOf(this.state.board, this.aiColor);
-    for (const [id, enemy] of enemiesBefore) {
-      if (!enemiesAfter.has(id)) this.events.push({ kind: 'took', square: enemy.position, type: enemy.type });
-    }
+    const taken = [...enemiesBefore].filter(([id]) => !enemiesAfter.has(id)).map(([, enemy]) => enemy);
+    this.snapshot(action, this.humanColor, taken);
+    this.events = taken.map(enemy => ({ kind: 'took', square: enemy.position, type: enemy.type }));
   }
 
   // The human gives up. Allowed while the AI is thinking: its move, when it
@@ -267,12 +268,11 @@ export class Game {
 
     // The only thing the AI's move tells the human directly: which of their
     // pieces vanished. Where the enemy went is exactly what fog hides.
-    for (const [id, piece] of before) {
-      if (!after.has(id)) this.events.push({ kind: 'captured', square: piece.position, type: piece.type });
-    }
+    const lost = [...before].filter(([id]) => !after.has(id)).map(([, mine]) => mine);
+    this.events.push(...lost.map(mine => ({ kind: 'captured', square: mine.position, type: mine.type })));
     this.moves.push({ color: this.aiColor, text: describeMove(action, piece) });
     this.keys.push(FogChess.actionKey(action));
-    this.snapshot(action, this.aiColor);
+    this.snapshot(action, this.aiColor, lost);
     this.beginHumanTurn();
   }
 
@@ -337,8 +337,9 @@ export class Game {
   // as `seen` for looking back at the game through the fog.
   history(result = this.result) {
     return this.plies.map(ply => {
-      const seen = { board: ply.seen, visible: ply.visible, revealed: false, lastMove: ply.color === this.humanColor ? ply.move : null };
-      return result ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move, seen } : seen;
+      const { captured } = ply;
+      const seen = { board: ply.seen, visible: ply.visible, revealed: false, lastMove: ply.color === this.humanColor ? ply.move : null, captured };
+      return result ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move, captured, seen } : seen;
     });
   }
 
