@@ -107,13 +107,14 @@ const strengthText = ({ mode, power, timeMs } = {}) =>
   mode === 'time' ? `AI time ${timeMs} ms a move` : mode === 'power' ? `AI power ${power}` : null;
 
 // Setting up a game, playing one and reviewing an old one are separate modes:
-// while a game is on, the setup cards (title, new-game form, rules, past
-// games) give way to the in-game cards, and a review has cards of its own.
+// the setup cards (title, new-game form, rules, past games) on the left go
+// while a game is on, and the game's cards on the right are the in-game ones
+// or a review's. A game that ends becomes a review of itself (see finish).
 function renderPanels() {
   const live = playing();
   const review = reviewing();
-  $('setup').hidden = live || review;
-  $('archive').hidden = live || review || !archived.length;
+  $('setup').hidden = live;
+  $('archive').hidden = live || !archived.length;
   $('in-game').hidden = !live;
   $('review').hidden = !review;
   $('moves-card').hidden = !live && !review;
@@ -276,9 +277,7 @@ function renderStatus() {
   if (reviewing()) { statusEl.textContent = reviewText(); return; }
   if (pastPly()) { statusEl.textContent = historyText(); return; }
   const news = view.events.map(eventText).filter(Boolean).join(' ');
-  if (view.result) {
-    statusEl.textContent = resultText(view.result) + ' The whole board is shown.';
-  } else if (view.error) {
+  if (view.error) {
     statusEl.textContent = 'The AI hit an error: ' + view.error;
   } else if (view.thinking) {
     statusEl.textContent = (news ? news + ' ' : '') + 'Opponent is thinking';
@@ -385,7 +384,7 @@ function renderTaken() {
 // --- stepping through the game ---------------------------------------------
 //
 // The arrow keys walk the board back and forth a ply at a time, through what
-// you saw at each point (the whole board, once the game is over). Stepping
+// you saw at each point (a finished game is a review: see reviewing). Stepping
 // forward off the last ply is back to the game; nothing can be played until
 // then.
 
@@ -1047,11 +1046,11 @@ async function play(key) {
 // Take a view from the server and, while the AI is thinking, long-poll until
 // it has moved.
 async function show(next) {
+  if (next.result) { finish(next); return; }
   view = next;
   belief = null;
   syncAnalysis();
   flashes = next.events.filter(e => e.kind === 'captured').map(e => e.square);
-  if (next.result) saveGame(next).then(renderArchive);
   render();
   if (next.thinking) {
     const mine = epoch;
@@ -1069,13 +1068,32 @@ async function show(next) {
   refreshBelief();
 }
 
-async function newGame(color, strength) {
-  epoch++;
-  stopAnalysis();
-  busy = false;
+// A game that ends is kept, and stays on the board as a review of itself, from
+// its last position: the moves, what was taken and the analysis stay, and the
+// setup cards come back beside it for the next one.
+function finish(next) {
+  const mine = epoch;
+  clearTimeout(reviewTimer);
+  endDrag();
   selected = null;
   plyShown = null;
+  belief = null;
   promotionEl.hidden = true;
+  view = { ...next, endedAt: Date.now(), review: true };
+  flashes = next.events.filter(e => e.kind === 'captured').map(e => e.square);
+  syncAnalysis();
+  render();
+  startAnalysis();
+  refreshBelief();
+  saveGame(next).then(record => {
+    // A reload that finds the game over keeps the first save's time.
+    if (record && mine === epoch) view.endedAt = record.endedAt;
+    renderArchive();
+  });
+}
+
+async function newGame(color, strength) {
+  leaveGame();
   const game = await api(API, { method: 'POST', body: { color, ...strength } });
   store.set('fog-chess:game', game.id);
   view = game;
@@ -1198,11 +1216,10 @@ $('new-game').addEventListener('submit', e => {
   newGame(color, strength()).catch(error => { statusEl.textContent = error.message; });
 });
 
-// Picking a side previews it. A finished game's board gives way to the preview
-// too, since the setup card is already asking about the next one.
+// Picking a side previews it, unless a game is on the board: a finished one
+// stays until it is closed or the next one starts.
 $('new-game').addEventListener('change', e => {
-  if (e.target.name !== 'color' || playing()) return;
-  if (view) { view = null; belief = null; markers = {}; circles = new Set(); arrows = new Set(); selected = null; }
+  if (e.target.name !== 'color' || view) return;
   render();
 });
 

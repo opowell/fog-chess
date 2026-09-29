@@ -11,16 +11,7 @@
 </head>
 <body>
   <main class="layout">
-    <section class="board-wrap">
-      <div class="board-frame">
-        <div id="board" class="board" role="grid" aria-label="Chess board"></div>
-        <svg id="arrows" class="arrows" viewBox="0 0 8 8" aria-hidden="true"></svg>
-        <div id="promotion" class="promotion" hidden></div>
-      </div>
-      <p id="status" class="status" aria-live="polite">Loading…</p>
-    </section>
-
-    <aside class="panel">
+    <aside class="panel setup-panel">
       <section id="setup" class="card setup">
         <header class="panel-head">
           <h1>Fog Chess</h1>
@@ -73,7 +64,18 @@
         <ol id="archive-list" class="archive-list"></ol>
         <p class="note">Kept in this browser. Open one to step through it and analyse your moves.</p>
       </section>
+    </aside>
 
+    <section class="board-wrap">
+      <div class="board-frame">
+        <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+        <svg id="arrows" class="arrows" viewBox="0 0 8 8" aria-hidden="true"></svg>
+        <div id="promotion" class="promotion" hidden></div>
+      </div>
+      <p id="status" class="status" aria-live="polite">Loading…</p>
+    </section>
+
+    <aside class="panel game-panel">
       <section id="review" class="card" hidden>
         <h2>Review</h2>
         <p id="review-info" class="game-info"></p>

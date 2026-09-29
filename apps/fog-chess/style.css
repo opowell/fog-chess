@@ -84,14 +84,35 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-areas: "setup board game";
   gap: 24px;
   padding: 16px;
   align-items: start;
 }
+.setup-panel { grid-area: setup; }
+.board-wrap { grid-area: board; }
+.game-panel { grid-area: game; }
+
+/* Narrower, the setup cards go under the game's. An empty track still takes a
+   gap, so the space between the panels comes from the game panel instead. */
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-areas: "board game" "board setup";
+    grid-template-rows: auto 1fr; /* the board spans both: its height goes to the second */
+    row-gap: 0;
+  }
+  .game-panel:has(> :not([hidden])) { margin-bottom: 14px; }
+}
 
 @media (max-width: 820px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "board" "game" "setup";
+    grid-template-rows: none;
+  }
+  .board-wrap { margin-bottom: 24px; }
 }
 
 /* --- board ---------------------------------------------------------------- */
