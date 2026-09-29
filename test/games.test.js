@@ -195,6 +195,30 @@ test('a pawn push onto a dark square is not offered, to play or to analyze', asy
   assert.ok(!result.candidates.some(c => c.key === 'd4d5'));
 });
 
+test('what the human\'s move reveals stays known after the AI\'s reply hides it', async () => {
+  // 1.f4 e5 2.b3 Nc6 3.Bb2 Bd6 4.fxe5 Nxe5: fxe5 shows the bishop on d6, then
+  // the knight takes the pawn that saw it. Only a knight moved, so it is still there.
+  const replies = ['e7e5', 'b8c6', 'f8d6', 'c6e5'];
+  const agentFactory = () => ({
+    chooseAction: async (observation, legal) => {
+      const key = replies.shift();
+      return legal.find(a => FogChess.actionKey(a) === key);
+    },
+  });
+  const game = new GameStore({ agentFactory }).create({ humanColor: 'white', power: 0 });
+  let view;
+  for (const key of ['f2f4', 'b2b3', 'c1b2', 'f4e5']) {
+    game.playHuman(key);
+    view = await game.waitForAi();
+  }
+  assert.equal(view.board.e5?.type, 'knight');
+  assert.ok(!view.visible.includes('d6'), 'd6 is dark again');
+  const { exact, squares } = game.belief();
+  assert.ok(exact);
+  assert.equal(squares.d6?.type, 'b');
+  assert.ok(squares.d6.p > 0.999, `bishop on d6 with p ${squares.d6.p}`);
+});
+
 test('the history holds a position per ply, as the human saw it until the game ends', async () => {
   const game = new GameStore().create({ humanColor: 'white', power: 0 });
   let view = game.playHuman('e2e4');

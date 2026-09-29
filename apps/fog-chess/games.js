@@ -17,7 +17,10 @@
 //     exact if it is fed on every one of the human's turns from the first, and
 //     told about every human move. The AI does that for its own seat inside
 //     chooseAction; for the human seat nobody does unless we do, which is what
-//     beginHumanTurn / onActionCommitted below are for.
+//     beginHumanTurn / onActionCommitted below are for. Neither turn start sees
+//     what a move reveals before the reply (fxe5 showing a bishop on d6), so
+//     after applying either side's move we hand that view on too
+//     (onActionObserved).
 // ---------------------------------------------------------------------------
 
 import { FogChess, ChessObscuroAgent, analyzeObscuroProgressive, param, settings } from '../../vendor/obscuro-chess/src/index.js';
@@ -199,6 +202,7 @@ export class Game {
     const piece = this.state.board[action.from];
     const enemiesBefore = piecesOf(this.state.board, this.aiColor);
     this.state = FogChess.applyActions(this.state, [{ playerId: this.humanColor, action }]);
+    FogChess.onActionObserved(this.observation(), this.humanColor);
     this.moves.push({ color: this.humanColor, text: describeMove(action, piece) });
     this.lastHumanMove = { from: action.from, to: action.to };
     this.snapshot(action, this.humanColor);
@@ -240,6 +244,7 @@ export class Game {
 
     const before = piecesOf(this.state.board, this.humanColor);
     this.state = FogChess.applyActions(this.state, [{ playerId: this.aiColor, action }]);
+    FogChess.onActionObserved(FogChess.getVisibleState(this.state, this.aiColor), this.aiColor);
     const after = piecesOf(this.state.board, this.humanColor);
 
     // The only thing the AI's move tells the human directly: which of their
