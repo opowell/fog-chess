@@ -506,6 +506,11 @@ a { color: var(--accent); }
 .an-cp.neg { color: var(--bad); }
 .an-note { font-size: 12px; }
 
+/* --- help page ------------------------------------------------------------ */
+
+.help { max-width: 640px; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 14px; }
+.help .card p { margin: 0; }
+
 .bw { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
 .bw[hidden] { display: none; }
 .bw select, .bw input, .bw button {
