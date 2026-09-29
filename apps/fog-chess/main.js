@@ -44,7 +44,32 @@ async function api(path, options = {}) {
 }
 
 const pieceSrc = (color, type) => `pieces/${color[0]}${PIECE_FILE[type]}.svg`;
-const orientation = () => (view?.humanColor === 'black' ? 'black' : 'white');
+const orientation = () => ((view ?? setupView()).humanColor === 'black' ? 'black' : 'white');
+
+// Before a game, the board previews the start as the chosen side will see it:
+// its own pieces, and fog over the half the enemy starts in. Random could be
+// either side, so it shows the whole board.
+const START_RANK = { R: 'rook', N: 'knight', B: 'bishop', Q: 'queen', K: 'king' };
+function setupView() {
+  const color = document.querySelector('#new-game input[name="color"]:checked')?.value ?? 'white';
+  const sides = color === 'random' ? ['white', 'black'] : [color];
+  const board = {};
+  for (const side of sides) {
+    const [back, front] = side === 'white' ? [1, 2] : [8, 7];
+    [...'RNBQKBNR'].forEach((letter, i) => {
+      board[FILES[i] + back] = { color: side, type: START_RANK[letter] };
+      board[FILES[i] + front] = { color: side, type: 'pawn' };
+    });
+  }
+  const ranks = color === 'black' ? [5, 6, 7, 8] : [1, 2, 3, 4];
+  return {
+    humanColor: color === 'black' ? 'black' : 'white',
+    board,
+    visible: ranks.flatMap(rank => [...FILES].map(file => file + rank)),
+    revealed: color === 'random',
+    legal: [],
+  };
+}
 
 function squaresInOrder() {
   const ranks = orientation() === 'white' ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8];
@@ -63,11 +88,12 @@ function render() {
 }
 
 // Setting up a game and playing one are separate modes: while a game is on,
-// the setup card (title, new-game form, rules) gives way to the in-game card.
+// the setup card (title, new-game form, rules) gives way to the in-game cards.
 function renderPanels() {
   const playing = !!view && !view.result;
   $('setup').hidden = playing;
   $('in-game').hidden = !playing;
+  $('fog-card').hidden = $('moves-card').hidden = !playing;
   if (playing) {
     const { mode, power, timeMs } = view.strength ?? {};
     const ai = mode === 'time' ? `AI time ${timeMs} ms a move` : mode === 'power' ? `AI power ${power}` : null;
@@ -81,9 +107,9 @@ const pastPly = () => (plyShown === null ? null : view?.history?.[plyShown] ?? n
 
 function renderBoard() {
   const past = pastPly();
-  const shown = past ?? view;
-  const visible = new Set(shown?.visible ?? []);
-  const legal = past ? [] : view?.legal ?? [];
+  const shown = past ?? view ?? setupView();
+  const visible = new Set(shown.visible);
+  const legal = past ? [] : shown.legal;
   const targets = new Set(selected ? legal.filter(m => m.from === selected).map(m => m.to) : []);
   const movable = new Set(legal.map(m => m.from));
   const order = squaresInOrder();
@@ -94,8 +120,8 @@ function renderBoard() {
     const file = sq[0];
     const rank = Number(sq[1]);
     const isDark = (FILES.indexOf(file) + rank) % 2 === 0;
-    const fogged = !!shown && !shown.revealed && !visible.has(sq);
-    const piece = shown?.board[sq];
+    const fogged = !shown.revealed && !visible.has(sq);
+    const piece = shown.board[sq];
 
     const cell = document.createElement('button');
     cell.type = 'button';
@@ -109,7 +135,7 @@ function renderBoard() {
     if (sq === selected) cell.classList.add('selected');
     if (drag?.ghost && sq === drag.from) cell.classList.add('drag-from');
     if (drag?.ghost && sq === drag.over) cell.classList.add('drag-over');
-    if (shown?.lastMove && (sq === shown.lastMove.from || sq === shown.lastMove.to)) cell.classList.add('last');
+    if (shown.lastMove && (sq === shown.lastMove.from || sq === shown.lastMove.to)) cell.classList.add('last');
     if (!past && flashes.includes(sq)) cell.classList.add('flash');
 
     let label = sq;
@@ -119,7 +145,7 @@ function renderBoard() {
     } else if (fogged && ghosts.has(sq)) {
       cell.append(img(pieceSrc(view.aiColor, ghosts.get(sq)), 'piece ghost'));
       label += `, hidden, on the analysis board: ${ghosts.get(sq)}`;
-    } else if (fogged && !past && markers[sq]) {
+    } else if (fogged && view && !past && markers[sq]) {
       cell.append(img(pieceSrc(view.aiColor, markers[sq]), 'piece marker'));
       label += `, hidden, your marker: ${markers[sq]}`;
     } else if (fogged) {
@@ -181,7 +207,7 @@ function resultText(result) {
 
 function renderStatus() {
   statusEl.classList.remove('thinking');
-  if (!view) { statusEl.textContent = 'Start a new game.'; return; }
+  if (!view) { statusEl.textContent = ''; return; }
   if (pastPly()) { statusEl.textContent = historyText(); return; }
   const news = view.events.map(eventText).filter(Boolean).join(' ');
   if (view.result) {
@@ -828,6 +854,14 @@ $('new-game').addEventListener('submit', e => {
   e.preventDefault();
   const color = new FormData(e.target).get('color');
   newGame(color, strength()).catch(error => { statusEl.textContent = error.message; });
+});
+
+// Picking a side previews it. A finished game's board gives way to the preview
+// too, since the setup card is already asking about the next one.
+$('new-game').addEventListener('change', e => {
+  if (e.target.name !== 'color' || playing()) return;
+  if (view) { view = null; belief = null; markers = {}; selected = null; }
+  render();
 });
 
 $('resign').addEventListener('click', resign);
