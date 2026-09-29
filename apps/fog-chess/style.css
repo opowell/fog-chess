@@ -521,6 +521,7 @@ a { color: var(--accent); }
   font-variant-numeric: tabular-nums;
 }
 .an-rows li:hover, .an-rows li.hovered { background: var(--row-hover); }
+.an-rows li.played { box-shadow: inset 3px 0 0 var(--accent); }
 .an-rank { font-size: 11px; color: var(--muted); text-align: right; }
 .an-cp, .an-prob { font-size: 13px; text-align: right; color: var(--muted); }
 .an-cp.pos { color: var(--good); }

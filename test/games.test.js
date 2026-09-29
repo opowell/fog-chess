@@ -324,3 +324,30 @@ test('a review replays a finished game to the human\'s belief at the time', asyn
   assert.throws(() => store.review({ humanColor: 'black', keys: ['e2e5'] }), /illegal move for white/);
   assert.throws(() => store.review({ humanColor: 'green', keys: [] }), /humanColor/);
 });
+
+test('a review can replay a finished game from the AI\'s side, to analyse its moves', async () => {
+  const store = new GameStore();
+  const game = store.create({ humanColor: 'black', power: 0 });
+  let view = await game.waitForAi();
+  for (let i = 0; i < 4 && !view.result; i++) {
+    view = game.playHuman(pick(view.legal).key);
+    view = await game.waitForAi();
+  }
+  if (!view.result) view = game.resign();
+
+  // White is the AI: its moves are the even plies.
+  for (let ply = 0; ply < view.keys.length; ply += 2) {
+    const review = store.review({ humanColor: 'white', keys: view.keys.slice(0, ply) });
+    const seen = review.view();
+    assert.equal(seen.toMove, 'white');
+    assert.deepEqual(seen.board, view.history[ply].aiSeen.board, `the AI's sight at ply ${ply}`);
+    assert.ok(seen.legal.some(m => m.key === view.keys[ply]), `the AI's move at ply ${ply} is among its options`);
+    assert.equal(review.belief().exact, true);
+  }
+  const review = store.review({ humanColor: 'white', keys: view.keys.slice(0, 2) });
+  // The first ranking will do; the whole walk takes minutes.
+  let ranked = false;
+  const result = await review.analyze({ onProgress: f => { ranked ||= !!f.candidates?.length; }, isCancelled: () => ranked });
+  assert.ok(result.candidates?.length > 0);
+  assert.ok(result.candidates.every(c => review.view().legal.some(m => m.key === c.key)));
+});

@@ -118,7 +118,7 @@ function renderPanels() {
   $('in-game').hidden = !live;
   $('review').hidden = !review;
   $('moves-card').hidden = !live && !review;
-  $('fog-card').hidden = !live && !(review && fogColor() === view.humanColor);
+  $('fog-card').hidden = !live && !(review && fogColor());
   $('marker-note').hidden = review;
   if (live) {
     const ai = strengthText(view.strength);
@@ -172,7 +172,8 @@ function renderBoard() {
   const targets = new Set(selected ? legal.filter(m => m.from === selected).map(m => m.to) : []);
   const movable = new Set(legal.map(m => m.from));
   const order = squaresInOrder();
-  const ghosts = new Map(boardOnTarget() ? (currentWorld()?.hidden ?? []).map(h => [h.sq, TYPE_OF_LETTER[h.type]]) : []);
+  const ghosts = new Map(boardOnTarget() && fogMatchesTarget() ? (currentWorld()?.hidden ?? []).map(h => [h.sq, TYPE_OF_LETTER[h.type]]) : []);
+  const hiddenColor = target()?.color === 'white' ? 'black' : 'white';
   const fragment = document.createDocumentFragment();
 
   order.forEach((sq, i) => {
@@ -202,7 +203,7 @@ function renderBoard() {
       cell.append(img(pieceSrc(piece.color, piece.type), 'piece'));
       label += `, ${piece.color} ${piece.type}`;
     } else if (fogged && ghosts.has(sq)) {
-      cell.append(img(pieceSrc(view.aiColor, ghosts.get(sq)), 'piece ghost'));
+      cell.append(img(pieceSrc(hiddenColor, ghosts.get(sq)), 'piece ghost'));
       label += `, hidden, on the analysis board: ${ghosts.get(sq)}`;
     } else if (fogged && view && !past && markers[sq]) {
       cell.append(img(pieceSrc(view.aiColor, markers[sq]), 'piece marker'));
@@ -410,27 +411,37 @@ const stepHistory = delta => showPly(plyOnBoard() + delta);
 // --- reviewing old games ----------------------------------------------------
 //
 // A finished game is kept in the browser, and opening one steps through it
-// like a game just played, a ply at a time. On the positions where you were to
-// move, the analysis and the belief overlay work as they did in play: the
-// server replays the game that far (GameStore.review), so both are built from
-// what you knew then.
+// like a game just played, a ply at a time. On every position with a move to
+// play, the analysis and the belief overlay work as they did in play, for the
+// side to move: the server replays the game that far from that side
+// (GameStore.review), so both are built from what it knew then. On the AI's
+// moves that is the AI's side of the fog, not its own search.
 
-// The position the analysis and the belief overlay are about, and how to find
-// the server's game for it: the live game on your move, or in a review the
-// ply on the board if you were the one to move there. Null when there is none.
+// The position the analysis and the belief overlay are about, whose it is, and
+// how to find the server's game for it: the live game on your move, or in a
+// review the ply on the board for the side to move there. Null when there is
+// none. `played` is the move made from there, in a review.
 function target() {
-  if (playing()) return view.thinking ? null : { position: `${view.id}:${view.turn}`, gameId: async () => view.id };
+  if (playing()) {
+    return view.thinking ? null : { position: `${view.id}:${view.turn}`, color: view.humanColor, gameId: async () => view.id };
+  }
   if (!reviewing()) return null;
   const ply = plyOnBoard();
   const last = view.history.length - 1;
-  const mine = (ply % 2 === 0) === (view.humanColor === 'white'); // white moves first
-  if (!mine || (ply === last && view.result.reason !== 'resigned')) return null;
+  if (ply === last && view.result.reason !== 'resigned') return null;
+  const color = ply % 2 === 0 ? 'white' : 'black'; // white moves first
   const keys = view.keys.slice(0, ply);
   return {
     position: `review:${view.id}:${ply}`,
-    gameId: async () => (await api(REVIEWS, { method: 'POST', body: { humanColor: view.humanColor, keys } })).id,
+    color,
+    played: view.keys[ply] ?? null,
+    gameId: async () => (await api(REVIEWS, { method: 'POST', body: { humanColor: color, keys } })).id,
   };
 }
+
+// Whether the review's fog is the side the analysis is for, so its possible
+// boards and belief belong on the fogged squares shown. Play is always yours.
+const fogMatchesTarget = () => !reviewing() || fogColor() === target()?.color;
 
 async function openReview(id) {
   const record = await loadGame(id);
@@ -529,7 +540,7 @@ async function renderArchive() {
 async function refreshBelief() {
   belief = null;
   beliefNote.textContent = '';
-  const on = beliefToggle.checked && (!reviewing() || fogColor() === view.humanColor);
+  const on = beliefToggle.checked && fogMatchesTarget();
   const t = on ? target() : null;
   if (!t) { renderBoard(); return; }
   const mine = epoch;
@@ -716,7 +727,8 @@ function renderAnalysis() {
   const section = $('analysis');
   section.hidden = !playing() && !reviewing();
   if (section.hidden) return;
-  const here = !!target();
+  const t = target();
+  const here = !!t;
   $('an-on').classList.toggle('on', analysis.on);
   $('an-off').classList.toggle('on', !analysis.on);
   $('an-body').hidden = !analysis.on;
@@ -729,23 +741,32 @@ function renderAnalysis() {
   pause.disabled = !here;
   $('an-progress').textContent = analysis.paused ? '' : (analysis.progress ?? '');
 
-  const rows = here ? analysis.candidates.slice(0, SHOWN_ROWS) : [];
+  // In a review, whose move this is, and the one made: its row stays in view
+  // with its real rank even when it is not among the top few.
+  const side = t && reviewing() ? (t.color === view.humanColor ? 'you' : 'the AI') : null;
+  $('an-for').textContent = side ? `${t.color[0].toUpperCase() + t.color.slice(1)} to move (${side}), from what ${side === 'you' ? 'you' : 'it'} could see. Evals are from ${t.color}'s side.` : '';
+  $('an-for').hidden = !side;
+  const ranked = here ? analysis.candidates.map((c, i) => ({ ...c, rank: i + 1 })) : [];
+  const rows = ranked.slice(0, SHOWN_ROWS);
+  const played = ranked.find(c => c.key === t?.played);
+  if (played && played.rank > SHOWN_ROWS) rows.push(played);
   let msg = '';
-  if (!here) msg = reviewing() ? 'Step to one of your moves to analyse it.' : 'Analysis starts on your move.';
+  if (!here) msg = reviewing() ? 'The game ended here. Step back to analyse a move.' : 'Analysis starts on your move.';
   else if (analysis.error) msg = analysis.error;
   else if (analysis.paused && !rows.length) msg = 'Paused.';
   else if (!rows.length) msg = analysis.running ? 'Analyzing…' : 'No suggestions.';
   $('an-msg').textContent = msg;
   $('an-msg').hidden = !msg;
 
-  $('an-rows').replaceChildren(...rows.map((c, i) => {
+  $('an-rows').replaceChildren(...rows.map(c => {
     const li = document.createElement('li');
     li.dataset.key = c.key;
     if (c.key === analysis.hovered) li.classList.add('hovered');
+    if (c === played) { li.classList.add('played'); li.title = 'The move played in the game'; }
     const cell = (cls, text) => { const el = document.createElement('span'); el.className = cls; el.textContent = text; return el; };
     const cp = cell('an-cp', fmtCp(c.cp));
     if (c.cp > 20) cp.classList.add('pos'); else if (c.cp < -20) cp.classList.add('neg');
-    li.append(cell('an-rank', i + 1), cell('an-move', c.text), cp, cell('an-prob', c.prob == null || analysis.single ? '' : Math.round(c.prob * 100) + '%'));
+    li.append(cell('an-rank', c.rank), cell('an-move', c.text), cp, cell('an-prob', c.prob == null || analysis.single ? '' : Math.round(c.prob * 100) + '%'));
     if (playing()) li.title = 'Click to pick up this piece';
     return li;
   }));
