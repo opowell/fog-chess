@@ -16,6 +16,7 @@ git -C "%DIR%" submodule update --init --recursive || exit /b 1
 
 :run
 set "JAS_APPS=%DIR%\apps"
+set "JAS_DEFAULT_APP=fog-chess"
 if not defined PORT set "PORT=4510"
-echo Fog chess: http://localhost:%PORT%/fog-chess
+echo Fog chess: http://localhost:%PORT%
 call "%DIR%\vendor\jas\jas.cmd" %*

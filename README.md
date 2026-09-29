@@ -19,7 +19,7 @@ cd fog-chess
 start.cmd           REM Windows
 ```
 
-Open http://localhost:4510/fog-chess. Nothing needs installing: every
+Open http://localhost:4510. Nothing needs installing: every
 dependency is committed or vendored, the Stockfish engine included. Set
 `PORT` to use a different port.
 

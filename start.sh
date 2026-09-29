@@ -22,6 +22,7 @@ if [ ! -f "$DIR/vendor/jas/jas.sh" ] || [ ! -f "$DIR/vendor/obscuro-chess/vendor
 fi
 
 export JAS_APPS="$DIR/apps"
+export JAS_DEFAULT_APP=fog-chess
 export PORT="${PORT:-4510}"
-echo "Fog chess: http://localhost:$PORT/fog-chess"
+echo "Fog chess: http://localhost:$PORT"
 exec sh "$DIR/vendor/jas/jas.sh" "$@"
