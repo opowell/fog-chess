@@ -82,6 +82,16 @@ function describeMove(action, piece) {
   return LETTER[piece?.type] + action.from + (action.isCapture ? '×' : '–') + action.to + promo;
 }
 
+function legalMove(action) {
+  return {
+    key: FogChess.actionKey(action),
+    from: action.from,
+    to: action.to,
+    promote: action.payload?.promote ?? null,
+    castle: action.type === 'castle' ? action.side : null,
+  };
+}
+
 function boardFor(board) {
   const out = {};
   for (const [sq, piece] of Object.entries(board)) {
@@ -316,13 +326,7 @@ export class Game {
       revealed: !!result,
       board: boardFor(result ? this.state.board : observation.board),
       visible: observation.visibleSquares,
-      legal: this.legalActions().map(a => ({
-        key: FogChess.actionKey(a),
-        from: a.from,
-        to: a.to,
-        promote: a.payload?.promote ?? null,
-        castle: a.type === 'castle' ? a.side : null,
-      })),
+      legal: this.legalActions().map(legalMove),
       lastMove: this.lastHumanMove,
       events: this.events,
       // Where the AI went is what the fog hides, until the game is over.
@@ -340,12 +344,28 @@ export class Game {
   // as `seen` (the human) and `aiSeen`, for looking back at the game through
   // either side's fog.
   history(result = this.result) {
-    return this.plies.map(ply => {
-      const seen = this._sight(ply, this.humanColor);
-      return result
-        ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move, captured: ply.captured, seen, aiSeen: this._sight(ply, this.aiColor) }
-        : seen;
-    });
+    return this.plies.map(ply => (result ? this._revealed(ply) : this._sight(ply, this.humanColor)));
+  }
+
+  _revealed(ply) {
+    return {
+      board: ply.board, visible: [], revealed: true, lastMove: ply.move, captured: ply.captured,
+      seen: this._sight(ply, this.humanColor), aiSeen: this._sight(ply, this.aiColor),
+    };
+  }
+
+  // A review's position for playing on from, with moves of your own for either
+  // side: the moves the side to move has there (a review is replayed from that
+  // side), and the last ply as a finished game's history shows it, with the
+  // move that made it. The game is over, so nothing here is still hidden.
+  line() {
+    return {
+      toMove: this.result ? null : this.toMove,
+      result: this.result,
+      legal: this.legalActions().map(legalMove),
+      ply: this._revealed(this.plies.at(-1)),
+      move: this.moves.at(-1) ?? null,
+    };
   }
 
   // One side's view of a ply: only its own moves are marked.

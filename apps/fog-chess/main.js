@@ -38,6 +38,8 @@ let suppressClick = false; // the click that ends a drag is not a second tap
 let plyShown = null; // stepping back through the game: the index into view.history on the board, or null for now
 let archived = []; // the past games list: [{ id, endedAt, humanColor, strength, result, plies }]
 let reviewTimer = null;
+let line = null; // a line of your own, played on from a review: { from, keys, plies, moves, result } (see playLine)
+let replays = new Map(); // a review's positions as the server replays them (see replay)
 
 const store = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
@@ -129,13 +131,20 @@ function renderPanels() {
     $('review-info').textContent = `${fmtDate(view.endedAt)}. You played ${view.humanColor}.` + (ai ? ` ${ai}.` : '')
       + (view.sightError ? ` The AI's view could not be loaded: ${view.sightError}` : '');
     for (const button of $('review-fog').children) button.classList.toggle('on', button.dataset.fog === reviewFog);
+    $('review-line').hidden = !line;
   }
 }
 
 const fmtDate = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 const reviewing = () => !!view?.review;
-const plyOnBoard = () => plyShown ?? (view?.history?.length ?? 1) - 1;
+
+// The moves on the board: the game's own, or once you play on from a review,
+// the game up to ply line.from and then your line.
+const lineHistory = () => (line ? [...view.history.slice(0, line.from + 1), ...line.plies] : view?.history);
+const lineMoves = () => (line ? [...view.moves.slice(0, line.from), ...line.moves] : view?.moves);
+const lineKeys = () => (line ? [...view.keys.slice(0, line.from), ...line.keys] : view?.keys);
+const plyOnBoard = () => plyShown ?? (lineHistory()?.length ?? 1) - 1;
 
 // Whose fog a review shows on the ply on the board, or null for the whole
 // board. 'active' follows the side to move, and white moves first.
@@ -152,7 +161,7 @@ function fogColor() {
 // shows the whole board.
 function pastPly() {
   if (reviewing()) {
-    const ply = view.history[plyOnBoard()];
+    const ply = lineHistory()[plyOnBoard()];
     const color = fogColor();
     if (!color) return ply;
     return (color === view.humanColor ? ply.seen : ply.aiSeen) ?? ply;
@@ -168,7 +177,7 @@ function renderBoard() {
   const past = pastPly();
   const shown = past ?? view ?? setupView();
   const visible = new Set(shown.visible);
-  const legal = past ? [] : shown.legal;
+  const legal = legalHere();
   const targets = new Set(selected ? legal.filter(m => m.from === selected).map(m => m.to) : []);
   const movable = new Set(legal.map(m => m.from));
   const order = squaresInOrder();
@@ -290,7 +299,7 @@ function renderStatus() {
 
 // Where the board is when stepping back, in the move list's own words.
 function plyText(ply) {
-  const move = view.moves[ply - 1];
+  const move = lineMoves()[ply - 1];
   return move
     ? `after ${Math.ceil(ply / 2)}.${move.color === 'white' ? '' : '..'} ${move.text ?? 'the opponent’s hidden move'}`
     : 'the start';
@@ -300,15 +309,17 @@ const historyText = () => `Looking back: ${plyText(plyShown)}. ← → step a mo
 
 function reviewText() {
   const where = plyText(plyOnBoard());
-  const end = plyShown === null ? ' ' + resultText(view.result) : '';
+  const result = line ? line.result : view.result;
+  const end = plyShown === null && result ? ' ' + resultText(result) : '';
+  const own = line && plyOnBoard() > line.from ? ' Your own line, not the game.' : '';
   const fog = fogColor() ? ` Through ${fogColor()}'s fog.` : '';
-  return `${where[0].toUpperCase() + where.slice(1)}.${end}${fog} ← → step through the game.`;
+  return `${where[0].toUpperCase() + where.slice(1)}.${own}${end}${fog} ← → step through, or move either side to try a line.`;
 }
 
 function renderMoves() {
   const list = $('moves');
   const rows = [];
-  const moves = view?.moves ?? [];
+  const moves = lineMoves() ?? [];
   // White always moves first, so plies pair up from the start.
   for (let i = 0; i < moves.length; i += 2) {
     const li = document.createElement('li');
@@ -332,6 +343,7 @@ function moveCell(move, ply) {
   else { el.textContent = 'hidden'; el.classList.add('hidden'); }
   el.dataset.ply = ply;
   el.title = 'Show the board after this move';
+  if (line && ply > line.from) { el.classList.add('own'); el.title += ', in your own line'; }
   if (ply === plyShown) el.classList.add('current');
   return el;
 }
@@ -345,7 +357,8 @@ function moveCell(move, ply) {
 // captures are over, so their true boards show it: whatever the side not
 // moving has fewer of (white moves first, so odd plies are white's).
 function capturedAt(i) {
-  const ply = view.history[i];
+  const history = lineHistory();
+  const ply = history[i];
   if (ply.captured) return ply.captured;
   if (!ply.revealed) return [];
   const color = i % 2 ? 'black' : 'white';
@@ -354,7 +367,7 @@ function capturedAt(i) {
     for (const p of Object.values(board)) if (p.color === color) n[p.type] = (n[p.type] ?? 0) + 1;
     return n;
   };
-  const before = count(view.history[i - 1].board), after = count(ply.board);
+  const before = count(history[i - 1].board), after = count(ply.board);
   return Object.entries(before).flatMap(([type, n]) => Array(Math.max(0, n - (after[type] ?? 0))).fill({ type, color }));
 }
 
@@ -390,8 +403,8 @@ function renderTaken() {
 // then.
 
 function showPly(ply) {
-  const last = (view?.history?.length ?? 0) - 1;
-  if (last < 1) return;
+  const last = (lineHistory()?.length ?? 0) - 1;
+  if (last < (reviewing() ? 0 : 1)) return;
   ply = Math.max(0, Math.min(last, ply));
   plyShown = ply === last ? null : ply;
   selected = null;
@@ -401,7 +414,7 @@ function showPly(ply) {
     belief = null;
     syncAnalysis();
     clearTimeout(reviewTimer);
-    reviewTimer = setTimeout(() => { startAnalysis(); refreshBelief(); }, 250);
+    reviewTimer = setTimeout(() => { startAnalysis(); refreshBelief(); loadMoves(); }, 250);
   }
   render();
 }
@@ -427,16 +440,111 @@ function target() {
   }
   if (!reviewing()) return null;
   const ply = plyOnBoard();
-  const last = view.history.length - 1;
-  if (ply === last && view.result.reason !== 'resigned') return null;
+  const over = line ? !!line.result : view.result.reason !== 'resigned';
+  if (ply === lineHistory().length - 1 && over) return null;
   const color = ply % 2 === 0 ? 'white' : 'black'; // white moves first
-  const keys = view.keys.slice(0, ply);
+  const keys = lineKeys().slice(0, ply);
   return {
-    position: `review:${view.id}:${ply}`,
+    position: `review:${view.id}:${keys.join(' ')}`,
     color,
-    played: view.keys[ply] ?? null,
-    gameId: async () => (await api(REVIEWS, { method: 'POST', body: { humanColor: color, keys } })).id,
+    played: !line || ply <= line.from ? view.keys[ply] ?? null : null,
+    // Asked afresh: the server keeps only so many reviews, and finds this one again if it still has it.
+    gameId: async () => (await replay(keys, true)).id,
   };
+}
+
+// A position of the review as the server replays it (GameStore.review), from
+// the side to move there, by the moves that lead to it: the game the analysis
+// and belief read, and the moves that side has (see legalHere). Each is kept
+// once it arrives.
+function replay(keys, fresh = false) {
+  const k = keys.join(' ');
+  const known = replays.get(k);
+  if (known && !fresh) return known.request;
+  const request = api(REVIEWS, { method: 'POST', body: { humanColor: keys.length % 2 === 0 ? 'white' : 'black', keys } });
+  const entry = { request, data: known?.data ?? null };
+  request.then(data => { entry.data = data; }, () => { if (!entry.data && replays.get(k) === entry) replays.delete(k); });
+  replays.set(k, entry);
+  return request;
+}
+
+// Asks for the moves from the review's position on the board, so either side's
+// pieces can be picked up there.
+async function loadMoves() {
+  if (!reviewing() || !target()) return;
+  const mine = epoch;
+  try {
+    await replay(lineKeys().slice(0, plyOnBoard()));
+  } catch (error) {
+    if (mine === epoch) statusEl.textContent = 'Could not load the moves here: ' + error.message;
+    return;
+  }
+  if (mine === epoch) renderBoard();
+}
+
+// --- playing on from a review ------------------------------------------------
+//
+// Reviewing, either side can be moved from any position, to try a line of your
+// own. The server replays it like the game (see replay), so the fog, what was
+// taken, the analysis and the belief all follow it as each side would have seen
+// it. Playing from earlier in a line starts a new one there; playing the game's
+// own move goes back onto the game.
+
+async function playLine(key) {
+  const at = plyOnBoard();
+  const keys = [...lineKeys().slice(0, at), key];
+  endDrag();
+  selected = null;
+  if (keys.every((k, i) => k === view.keys[i])) {
+    line = null;
+    window.playChessMoveSound?.();
+    showPly(keys.length);
+    return;
+  }
+  busy = true;
+  stopAnalysis();
+  renderBoard();
+  const mine = epoch;
+  let data;
+  try {
+    data = await replay(keys);
+  } catch (error) {
+    if (mine !== epoch) return;
+    busy = false;
+    statusEl.textContent = error.message;
+    startAnalysis();
+    renderBoard();
+    return;
+  }
+  if (mine !== epoch) return;
+  busy = false;
+  let from = 0;
+  while (keys[from] === view.keys[from]) from++;
+  // The server replayed it from the side to move next: its sight is `seen`.
+  const next = keys.length % 2 === 0 ? 'white' : 'black';
+  const reached = next === view.humanColor ? data.ply : { ...data.ply, seen: data.ply.aiSeen, aiSeen: data.ply.seen };
+  line = {
+    from,
+    keys: keys.slice(from),
+    plies: [...lineHistory().slice(from + 1, at + 1), reached],
+    moves: [...lineMoves().slice(from, at), data.move],
+    result: data.result,
+  };
+  plyShown = null;
+  belief = null;
+  window.playChessMoveSound?.();
+  syncAnalysis();
+  render();
+  startAnalysis();
+  refreshBelief();
+}
+
+// Off your line, back to the game where it left it.
+function leaveLine() {
+  if (!line) return;
+  const { from } = line;
+  line = null;
+  showPly(from);
 }
 
 // Whether the review's fog is the side the analysis is for, so its possible
@@ -453,6 +561,7 @@ async function openReview(id) {
   render();
   startAnalysis();
   refreshBelief();
+  loadMoves();
   if (!record.history.every(ply => ply.aiSeen)) fillAiSight(record);
 }
 
@@ -488,6 +597,8 @@ function leaveGame() {
   busy = false;
   selected = null;
   plyShown = null;
+  line = null;
+  replays = new Map();
   belief = null;
   markers = {};
   circles = new Set();
@@ -758,6 +869,7 @@ function renderAnalysis() {
   $('an-msg').textContent = msg;
   $('an-msg').hidden = !msg;
 
+  const canPick = legalHere().length > 0;
   $('an-rows').replaceChildren(...rows.map(c => {
     const li = document.createElement('li');
     li.dataset.key = c.key;
@@ -767,7 +879,7 @@ function renderAnalysis() {
     const cp = cell('an-cp', fmtCp(c.cp));
     if (c.cp > 20) cp.classList.add('pos'); else if (c.cp < -20) cp.classList.add('neg');
     li.append(cell('an-rank', c.rank), cell('an-move', c.text), cp, cell('an-prob', c.prob == null || analysis.single ? '' : Math.round(c.prob * 100) + '%'));
-    if (playing()) li.title = 'Click to pick up this piece';
+    if (canPick) li.title = (li.title ? li.title + '. ' : '') + 'Click to pick up this piece';
     return li;
   }));
   $('an-rows').classList.toggle('stale', analysis.paused);
@@ -901,18 +1013,29 @@ function toggleArrow(from, to) {
 
 const canMove = () => !!view && !view.result && !view.thinking && !busy && plyShown === null;
 
+// The moves that can be made on the board: yours on your turn in a game, or
+// in a review, the side to move's from the position shown (see playLine).
+function legalHere() {
+  if (reviewing()) return busy ? [] : replays.get(lineKeys().slice(0, plyOnBoard()).join(' '))?.data?.legal ?? [];
+  return canMove() ? view.legal : [];
+}
+
+const sideToMove = () => (plyOnBoard() % 2 === 0 ? 'white' : 'black');
+const makeMove = key => (reviewing() ? playLine(key) : play(key));
+
 // Plays the selected piece to sq if that is a legal move; true if it did.
 function moveSelectedTo(sq) {
-  const options = view.legal.filter(m => m.from === selected && m.to === sq);
-  if (options.length === 1) { play(options[0].key); return true; }
+  const options = legalHere().filter(m => m.from === selected && m.to === sq);
+  if (options.length === 1) { makeMove(options[0].key); return true; }
   if (options.length > 1) { askPromotion(options); return true; }
   return false;
 }
 
 function onSquare(sq) {
-  if (!canMove()) return;
+  const legal = legalHere();
+  if (!legal.length) return;
   if (selected && moveSelectedTo(sq)) return;
-  selected = view.legal.some(m => m.from === sq) && selected !== sq ? sq : null;
+  selected = legal.some(m => m.from === sq) && selected !== sq ? sq : null;
   renderBoard();
 }
 
@@ -959,9 +1082,9 @@ boardEl.addEventListener('pointerdown', e => {
   suppressClick = false;
   pressHandled = false;
   if (e.button === 2) { startSketch(e); return; }
-  if (e.button !== 0 || !e.isPrimary || !canMove()) return;
+  if (e.button !== 0 || !e.isPrimary) return;
   const sq = e.target.closest('.sq')?.dataset.sq;
-  if (!sq || !view.legal.some(m => m.from === sq)) return;
+  if (!sq || !legalHere().some(m => m.from === sq)) return;
   endDrag();
   drag = { from: sq, pointerId: e.pointerId, x: e.clientX, y: e.clientY, ghost: null, over: null };
 });
@@ -987,7 +1110,7 @@ window.addEventListener('pointerup', e => {
   suppressClick = true;
   const to = squareAt(e.clientX, e.clientY);
   // Dropped back where it started, it stays picked up, as after a click.
-  if (to && to !== selected && canMove() && moveSelectedTo(to)) return;
+  if (to && to !== selected && moveSelectedTo(to)) return;
   if (to !== selected) selected = null;
   renderBoard();
 });
@@ -1036,8 +1159,8 @@ function askPromotion(options) {
     const button = document.createElement('button');
     button.type = 'button';
     button.setAttribute('aria-label', 'Promote to ' + type);
-    button.append(img(pieceSrc(view.humanColor, type), ''));
-    button.addEventListener('click', () => { promotionEl.hidden = true; play(option.key); });
+    button.append(img(pieceSrc(sideToMove(), type), ''));
+    button.addEventListener('click', () => { promotionEl.hidden = true; makeMove(option.key); });
     return button;
   }));
   promotionEl.hidden = false;
@@ -1098,6 +1221,7 @@ function finish(next) {
   endDrag();
   selected = null;
   plyShown = null;
+  line = null;
   belief = null;
   promotionEl.hidden = true;
   view = { ...next, endedAt: Date.now(), review: true };
@@ -1106,6 +1230,7 @@ function finish(next) {
   render();
   startAnalysis();
   refreshBelief();
+  loadMoves();
   saveGame(next).then(record => {
     // A reload that finds the game over keeps the first save's time.
     if (record && mine === epoch) view.endedAt = record.endedAt;
@@ -1258,6 +1383,7 @@ $('archive-list').addEventListener('click', async e => {
 });
 
 $('review-close').addEventListener('click', closeReview);
+$('review-line').addEventListener('click', leaveLine);
 
 $('review-fog').addEventListener('click', e => {
   const fog = e.target.closest('[data-fog]')?.dataset.fog;
@@ -1285,7 +1411,7 @@ rowsEl.addEventListener('mouseleave', () => hoverRow(null));
 // suggestion should not spend your turn.
 rowsEl.addEventListener('click', e => {
   const c = analysis.candidates.find(m => m.key === e.target.closest('li')?.dataset.key);
-  if (!c || !playing() || view.thinking || busy) return;
+  if (!c || !legalHere().some(m => m.key === c.key)) return;
   selected = c.from;
   renderBoard();
 });

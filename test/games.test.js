@@ -351,3 +351,30 @@ test('a review can replay a finished game from the AI\'s side, to analyse its mo
   assert.ok(result.candidates?.length > 0);
   assert.ok(result.candidates.every(c => review.view().legal.some(m => m.key === c.key)));
 });
+
+test('a review can be played on from, by either side, off the game\'s own moves', async () => {
+  const store = new GameStore();
+  const game = store.create({ humanColor: 'white', power: 0 });
+  game.playHuman('e2e4');
+  let view = await game.waitForAi();
+  view = game.resign();
+
+  // Black to move after e2e4: its moves, not the game's own reply only.
+  const start = store.review({ humanColor: 'black', keys: ['e2e4'] }).line();
+  assert.equal(start.toMove, 'black');
+  assert.ok(start.legal.some(m => m.key === view.keys[1]));
+  assert.ok(start.legal.every(m => /[a-h][78]/.test(m.from)));
+  assert.equal(start.ply.board.e4.type, 'pawn');
+
+  // A move the game never saw, then white on from there.
+  const other = start.legal.find(m => m.key !== view.keys[1]).key;
+  const line = store.review({ humanColor: 'white', keys: ['e2e4', other] }).line();
+  assert.equal(line.toMove, 'white');
+  assert.equal(line.result, null);
+  assert.equal(line.move.color, 'black');
+  assert.ok(line.move.text);
+  assert.ok(line.ply.revealed && line.ply.seen && line.ply.aiSeen);
+  assert.equal(line.ply.lastMove.to, other.slice(2, 4));
+  assert.ok(line.legal.length > 0);
+  assert.ok(line.legal.every(m => /[a-h][12]|e4/.test(m.from)));
+});

@@ -378,6 +378,8 @@ button[type="submit"] {
 .moves [data-ply] { cursor: pointer; border-radius: 4px; padding: 0 4px; }
 .moves [data-ply]:hover { background: var(--row-hover); }
 .moves .current, .moves .current:hover { background: var(--last); }
+.moves .own { color: var(--accent); }
+.review-line { margin-bottom: 8px; }
 .moves:empty::before { content: "No moves yet."; grid-column: 1 / -1; color: var(--muted); }
 
 .archive-list {
