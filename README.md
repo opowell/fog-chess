@@ -3,7 +3,8 @@
 Play fog-of-war chess in your browser against
 [Obscuro](https://github.com/opowell/obscuro-chess), an AI built for it. In fog
 chess you see only the squares your own pieces can move to, and you win by
-capturing the enemy king. There is no check or checkmate.
+capturing the enemy king. There is no check or checkmate, and a pawn cannot push
+onto a dark square: the square ahead of a pawn is lit only while it is empty.
 
 ![The board at the start: the enemy half is hidden](apps/fog-chess/preview.png)
 
@@ -27,13 +28,35 @@ submodules itself the first time it runs.
 
 ### What the page offers
 
-- **New game:** play White, Black or a random colour. Pick an AI strength from
-  0 (random moves) to 100 (about 2 seconds a move). The default is 25.
+- **New game:** play White, Black or a random colour, and set how hard the AI
+  thinks in one of two ways:
+  - **Power** (0 and up, default 25) fixes how much the AI reasons each move: how
+    many possible enemy positions it considers, how many search rounds it runs,
+    how big its search tree grows and how deep Stockfish looks at the leaves.
+    Nothing is cut short by the clock, so a level plays the same on any
+    machine and a move takes as long as it takes: under a second at 25, up to
+    about 15 seconds at 100 and about a minute at 150 on a recent laptop. 0
+    plays random moves. There is no top: past 100, where obscuro-chess's own
+    dial ends, every one of those numbers keeps growing along the same curve.
+  - **Time** (ms per move) gives the AI a clock instead and searches until it
+    runs out, so a faster computer plays stronger.
 - **Show where the enemy might be:** shades each dark square by the chance an
   enemy piece stands there, and labels it with the likeliest piece. The numbers
   come from *your* information only: every position consistent with what you
   have seen, weighted by how likely each is. They say nothing the fog doesn't
   already allow you to work out.
+- **Analysis:** on your move, the panel ranks your moves the way Obscuro
+  would, like the analysis panel in
+  [Battle Simulator](https://github.com/opowell/battle-simulator). It works
+  through every position consistent with what you have seen, getting wider
+  (more of them) and deeper (more Stockfish depth) until it has covered them
+  all, and shows for each move how often Obscuro's strategy plays it and its
+  average evaluation. The top three are drawn as arrows. Below the list you
+  can step through the boards you might be facing, most likely first or
+  ranked by how good one move looks in them, with the enemy pieces drawn
+  faintly on the fog. Like the shading above it uses only your information.
+  Pause keeps the results on screen, and Resume carries on where it stopped.
+  It stops the moment you move, so it never slows the AI's reply.
 - **Markers:** right-click a dark square (or long-press it on a touch screen)
   to leave yourself a reminder of what you think is there.
 - **Resuming:** a reload picks your game back up. Games live in the server's
@@ -67,11 +90,12 @@ Everything is under `/fog-chess/api/games`:
 
 | Request | Returns |
 | --- | --- |
-| `POST /` with `{ color, difficulty }` | A new game's view. `color` is `white`, `black` or `random` |
+| `POST /` with `{ color, mode, power }` or `{ color, mode, timeMs }` | A new game's view. `color` is `white`, `black` or `random`; `mode` is `power` (with `power` 0 or more) or `time` (with `timeMs` 0–600000) |
 | `GET /:id` | The current view |
 | `GET /:id?wait=1` | The view once the AI has replied |
 | `POST /:id/move` with `{ key }` | The view after your move. The AI starts its reply at once. `key` is one of the view's `legal[].key` |
 | `GET /:id/belief` | For each hidden square, the chance of an enemy piece there and its likeliest type |
+| `GET /:id/analysis` | A server-sent event stream of the AI's ranking of your moves as it refines, one `data:` frame per step and a last one with `done: true`. Your move only; a move or hanging up stops it |
 
 ### Running it inside a JAS you already have
 
@@ -89,7 +113,7 @@ afterwards, because JAS loads an app's `server.js` only at startup.
 ## Development
 
 ```sh
-npm test            # plays whole games against the AI at strength 0 and checks nothing hidden leaks
+npm test            # plays whole games against the AI at power 0 and checks nothing hidden leaks
 ```
 
 Point git at the tracked hooks once per clone. They keep the submodules in step

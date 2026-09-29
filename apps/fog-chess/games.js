@@ -20,24 +20,62 @@
 //     beginHumanTurn / onActionCommitted below are for.
 // ---------------------------------------------------------------------------
 
-import { FogChess, ChessObscuroAgent } from '../../vendor/obscuro-chess/src/index.js';
+import { FogChess, ChessObscuroAgent, analyzeObscuroProgressive, param, settings } from '../../vendor/obscuro-chess/src/index.js';
+import { DIAL, param as searchParam, ramp } from '../../vendor/obscuro-chess/vendor/obscuro/src/index.js';
 
 export const COLORS = ['white', 'black'];
 const other = color => (color === 'white' ? 'black' : 'white');
 
-export const DEFAULT_DIFFICULTY = 25;
+// How hard the AI thinks, one of two ways:
+//   • power — a fixed amount of reasoning per move, from 0 (random) up, with
+//     no ceiling. The level fixes the belief worlds searched, the search
+//     rounds, the tree size and the Stockfish depth at the leaves; nothing is
+//     cut short by the clock, so the same level reasons the same amount on any
+//     machine and a move takes as long as that takes.
+//   • time — a wall-clock limit per move, in ms. The engine searches until it
+//     runs out, so how much it reasons depends on how fast the machine is.
+export const MODES = ['power', 'time'];
+export const DEFAULT_STRENGTH = { mode: 'power', power: 25, timeMs: 2000 };
+const MAX_TIME_MS = 600000; // obscuro-chess's own ceiling for a time limit
 const MAX_GAMES = 50;
 
 const LETTER = { king: 'K', queen: 'Q', rook: 'R', bishop: 'B', knight: 'N', pawn: '' };
 
+// The search settings for a power level. Up to 100 that is obscuro-chess's own
+// difficulty dial. The dial stops at 100 (its top is roughly the paper's
+// per-move budget), so above that the same curves are carried on past their
+// end: power 200 is to 100 what 100 is to 0 along every knob. Those values go
+// in as overrides, per game for the search (gameSpecific.obscuro) and on the
+// agent for the leaf depth, which the per-game overrides don't reach.
+function powerSettings(level) {
+  // The dial also carries a wall-clock budget of its own (30 ms at 0 up to 2 s
+  // at 100) that ends the search early on a slow machine. timeBudgetMs 0 means
+  // no clock, which leaves the counts below as the only limits.
+  const search = { timeBudgetMs: 0 };
+  const agent = {};
+  if (level > 100) {
+    const t = level / 100;
+    const D = searchParam('DIAL.power', DIAL.power);
+    Object.assign(search, {
+      particles: ramp(D.worlds, t),
+      maxRounds: ramp(D.maxRounds, t),
+      maxInfosets: ramp(D.maxInfosets, t),
+      expandPerRound: ramp(D.expandPerRound, t),
+      cfrPerRound: ramp(D.cfrPerRound, t),
+      finalCfr: ramp(D.finalCfr, t),
+    });
+    agent.sfDepth = ramp(param('chess.CHESS_DIAL', settings.CHESS_DIAL).leafEval.sfDepth, t);
+  }
+  return { state: { difficulty: Math.min(level, 100), obscuro: search }, agent };
+}
+
 // Coordinate notation for a move the human made: enough to read back a game,
 // without pretending to SAN (which needs disambiguation against pieces the
 // mover may not even be able to see).
-function describeMove(action, piece, failed) {
+function describeMove(action, piece) {
   if (action.type === 'castle') return action.side === 'kingside' ? 'O-O' : 'O-O-O';
   const promo = action.payload?.promote ? '=' + LETTER[action.payload.promote] : '';
-  const text = LETTER[piece?.type] + action.from + (action.isCapture ? '×' : '–') + action.to + promo;
-  return failed ? text + ' (blocked)' : text;
+  return LETTER[piece?.type] + action.from + (action.isCapture ? '×' : '–') + action.to + promo;
 }
 
 function boardFor(board) {
@@ -67,30 +105,47 @@ const serialize = fn => {
 };
 
 export class Game {
-  constructor({ id, humanColor = 'white', difficulty = DEFAULT_DIFFICULTY, agent } = {}) {
+  constructor({ id, humanColor = 'white', mode = DEFAULT_STRENGTH.mode, power = DEFAULT_STRENGTH.power,
+    timeMs = DEFAULT_STRENGTH.timeMs, agent, agentFactory = opts => new ChessObscuroAgent(opts) } = {}) {
     if (!COLORS.includes(humanColor)) throw new Error('humanColor must be white or black');
-    const level = Math.round(Number(difficulty));
-    if (!(level >= 0 && level <= 100)) throw new Error('difficulty must be 0–100');
+    if (!MODES.includes(mode)) throw new Error('mode must be power or time');
     this.id = id;
     this.humanColor = humanColor;
     this.aiColor = other(humanColor);
-    this.difficulty = level;
-    this.agent = agent ?? new ChessObscuroAgent();
+    let config, agentOpts = {};
+    if (mode === 'power') {
+      const level = Math.round(Number(power));
+      if (!(level >= 0 && Number.isFinite(level))) throw new Error('power must be 0 or more');
+      this.strength = { mode, power: level };
+      ({ state: config, agent: agentOpts } = powerSettings(level));
+    } else {
+      const ms = Math.round(Number(timeMs));
+      if (!(ms >= 0 && ms <= MAX_TIME_MS)) throw new Error(`timeMs must be 0–${MAX_TIME_MS}`);
+      this.strength = { mode, timeMs: ms };
+      config = { aiTimeMs: ms };
+    }
+    this.agent = agent ?? agentFactory(agentOpts);
     this.touchedAt = Date.now();
     // A fresh players array per game: belief trackers key on its identity.
     const players = [{ id: 'white', name: 'White' }, { id: 'black', name: 'Black' }];
-    this.state = FogChess.createInitialState(players, { fogOfWar: true, difficulty: level });
+    this.state = FogChess.createInitialState(players, { fogOfWar: true, ...config });
     this.moves = [];           // [{ color, text }] — AI moves are recorded as hidden (text null)
     this.events = [];          // what the human learned since their last move
-    this.lastHumanMove = null; // { from, to, failed } for highlighting
+    this.lastHumanMove = null; // { from, to } for highlighting
     this.pending = null;       // the AI's move in flight, if any
     this.error = null;
+    this.resigned = false;
     this._humanTurnSeen = null;
+    this._analysisRun = 0;     // bumped to stop the analysis in flight, if any
+    this._analysisWalk = null; // { turn, walkState }: where a stopped analysis got to
     this.beginHumanTurn();
   }
 
   get toMove() { return this.state.activePlayers[0]; }
-  get result() { return FogChess.getResult(this.state); }
+  get result() {
+    if (this.resigned) return { outcome: 'win', winnerId: this.aiColor, reason: 'resigned' };
+    return FogChess.getResult(this.state);
+  }
 
   // What the human is entitled to see right now.
   observation() {
@@ -123,21 +178,29 @@ export class Game {
     if (!action) throw Object.assign(new Error('illegal move: ' + key), { status: 400 });
 
     this.beginHumanTurn();
+    this._analysisRun++;
     FogChess.onActionCommitted(observation, this.humanColor, action);
     const piece = this.state.board[action.from];
     const enemiesBefore = piecesOf(this.state.board, this.aiColor);
     this.state = FogChess.applyActions(this.state, [{ playerId: this.humanColor, action }]);
-    // A pawn push into a hidden piece fails: the pawn stays, and the turn is spent.
-    const failed = action.type !== 'castle' && this.state.board[action.from]?.id === piece.id;
-    this.moves.push({ color: this.humanColor, text: describeMove(action, piece, failed) });
-    this.lastHumanMove = { from: action.from, to: failed ? action.from : action.to, failed };
+    this.moves.push({ color: this.humanColor, text: describeMove(action, piece) });
+    this.lastHumanMove = { from: action.from, to: action.to };
     this.events = [];
-    if (failed) this.events.push({ kind: 'blocked', square: action.to });
     const enemiesAfter = piecesOf(this.state.board, this.aiColor);
     for (const [id, enemy] of enemiesBefore) {
       if (!enemiesAfter.has(id)) this.events.push({ kind: 'took', square: enemy.position, type: enemy.type });
     }
     this.startAi();
+    return this.view();
+  }
+
+  // The human gives up. Allowed while the AI is thinking: its move, when it
+  // arrives, is dropped (see _aiMove).
+  resign() {
+    this.touchedAt = Date.now();
+    if (this.result) throw Object.assign(new Error('the game is over'), { status: 409 });
+    this._analysisRun++;
+    this.resigned = true;
     return this.view();
   }
 
@@ -155,6 +218,7 @@ export class Game {
     const observation = FogChess.getVisibleState(this.state, this.aiColor);
     const legal = FogChess.getLegalActions(observation, this.aiColor);
     const action = await this.agent.chooseAction(observation, legal);
+    if (this.resigned) return;
     if (!action) throw new Error('the AI found no move');
 
     const before = piecesOf(this.state.board, this.humanColor);
@@ -184,7 +248,7 @@ export class Game {
       id: this.id,
       humanColor: this.humanColor,
       aiColor: this.aiColor,
-      difficulty: this.difficulty,
+      strength: this.strength,
       turn: this.state.turnNumber,
       toMove: result ? null : this.toMove,
       thinking: !result && this.toMove === this.aiColor && !this.error,
@@ -204,6 +268,41 @@ export class Game {
       moves: this.moves,
       error: this.error,
     };
+  }
+
+  // Obscuro's read-only analysis of the human's move: the same belief walk the
+  // Battle Simulator's analysis panel runs (obscuro-chess's
+  // analyzeObscuroProgressive). It ranks every legal move over every position
+  // consistent with what the human has seen, getting wider (more of those
+  // positions) and deeper (Stockfish depth at the leaves) until it has covered
+  // them all at full depth, is stopped, or the human moves. Reports each step
+  // through onProgress, and resolves with the last.
+  //
+  // It reads the human's observation and belief only, so it tells them nothing
+  // the fog doesn't already allow them to work out, and it never records a move
+  // in the belief, so it cannot change how the game goes on.
+  //
+  // One analysis per game at a time: a new one stops the last. A stopped walk
+  // leaves its place behind, so asking again on the same turn (Pause, then
+  // Resume, or a reload) carries on from there instead of starting over.
+  async analyze({ onProgress, isCancelled = () => false } = {}) {
+    if (this.result) throw Object.assign(new Error('the game is over'), { status: 409 });
+    if (this.toMove !== this.humanColor) throw Object.assign(new Error('it is not your turn'), { status: 409 });
+    const run = ++this._analysisRun;
+    const stopped = () => run !== this._analysisRun || isCancelled();
+    const turn = this.state.turnNumber;
+    this.beginHumanTurn();
+    const observation = this.observation();
+    const legal = FogChess.getLegalActions(observation, this.humanColor);
+    const frame = info => analysisFrame(info, observation, legal);
+    const result = await analyzeObscuroProgressive(observation, legal, {
+      color: this.humanColor,
+      isCancelled: stopped,
+      resumeState: this._analysisWalk?.turn === turn ? this._analysisWalk.walkState : undefined,
+      saveWalkState: walkState => { if (!stopped()) this._analysisWalk = { turn, walkState }; },
+      onProgress: info => { if (!stopped()) onProgress?.(frame(info)); },
+    });
+    return frame(result);
   }
 
   // Where the enemy might be: for every square the human cannot see, the
@@ -236,17 +335,60 @@ export class Game {
   }
 }
 
+// One analysis step as the page gets it: moves named the way the move list
+// names them, and each possible board as the enemy pieces the fog hides in it.
+function analysisFrame(info, observation, legal) {
+  const byKey = new Map(legal.map(a => [FogChess.actionKey(a), a]));
+  const out = {
+    kind: info.kind ?? null,
+    depth: info.depth ?? null,
+    maxDepth: info.maxDepth ?? null,
+    evaluated: info.evaluated ?? null,
+    total: info.total ?? null,
+    exhaustive: !!info.exhaustive,
+  };
+  if (info.candidates) {
+    out.candidates = info.candidates.map(c => {
+      const action = byKey.get(c.key ?? FogChess.actionKey(c.move)) ?? c.move;
+      return {
+        key: FogChess.actionKey(action),
+        text: describeMove(action, observation.board[action.from]),
+        from: action.from,
+        to: action.to,
+        cp: c.cp ?? null,
+        prob: c.prob ?? null,
+      };
+    });
+  }
+  const b = info.beliefWorlds;
+  if (b) {
+    out.worlds = {
+      total: b.total ?? null,
+      approx: !!b.approx,
+      depth: b.depth ?? null,
+      moves: b.moves,
+      list: b.worlds.map(w => ({
+        id: w.id,
+        prob: w.prob ?? null,
+        cp: w.cp ?? null,
+        hidden: w.hidden.map(({ sq, type }) => ({ sq, type })),
+      })),
+    };
+  }
+  return out;
+}
+
 export class GameStore {
   constructor({ agentFactory } = {}) {
     this.games = new Map();
-    this.agentFactory = agentFactory ?? (() => new ChessObscuroAgent());
+    this.agentFactory = agentFactory ?? (opts => new ChessObscuroAgent(opts));
     this.nextId = 1;
   }
 
-  create({ humanColor = 'white', difficulty = DEFAULT_DIFFICULTY } = {}) {
+  create({ humanColor = 'white', ...strength } = {}) {
     if (humanColor === 'random') humanColor = Math.random() < 0.5 ? 'white' : 'black';
     const id = Date.now().toString(36) + '-' + (this.nextId++).toString(36);
-    const game = new Game({ id, humanColor, difficulty, agent: this.agentFactory() });
+    const game = new Game({ id, humanColor, ...strength, agentFactory: this.agentFactory });
     this.games.set(id, game);
     this._evict();
     game.startAi(); // the AI opens when the human plays black

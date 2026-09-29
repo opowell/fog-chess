@@ -14,32 +14,96 @@
     <section class="board-wrap">
       <div class="board-frame">
         <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+        <svg id="arrows" class="arrows" viewBox="0 0 8 8" aria-hidden="true"></svg>
         <div id="promotion" class="promotion" hidden></div>
       </div>
       <p id="status" class="status" aria-live="polite">Loading…</p>
     </section>
 
     <aside class="panel">
-      <header class="panel-head">
-        <h1>Fog Chess</h1>
-        <p class="tagline">You see only the squares your pieces can reach. Capture the king to win.</p>
-      </header>
+      <section id="setup" class="card setup">
+        <header class="panel-head">
+          <h1>Fog Chess</h1>
+          <p class="tagline">You see only the squares your pieces can reach. Capture the king to win.</p>
+        </header>
 
-      <form id="new-game" class="card">
-        <h2>New game</h2>
-        <fieldset class="colors">
-          <legend>Play as</legend>
-          <label><input type="radio" name="color" value="white" checked> White</label>
-          <label><input type="radio" name="color" value="black"> Black</label>
-          <label><input type="radio" name="color" value="random"> Random</label>
-        </fieldset>
-        <label class="difficulty">
-          <span>AI strength <output id="difficulty-out">25</output></span>
-          <input id="difficulty" type="range" min="0" max="100" step="1" value="25">
-          <small>0 plays at random; 100 thinks about 2 s a move.</small>
-        </label>
-        <button type="submit">Start</button>
-      </form>
+        <form id="new-game">
+          <h2>New game</h2>
+          <fieldset class="colors">
+            <legend>Play as</legend>
+            <label><input type="radio" name="color" value="white" checked> White</label>
+            <label><input type="radio" name="color" value="black"> Black</label>
+            <label><input type="radio" name="color" value="random"> Random</label>
+          </fieldset>
+          <fieldset class="strength">
+            <legend>AI strength</legend>
+            <div class="strength-row">
+              <select id="strength-mode" aria-label="Limit the AI by">
+                <option value="power">Power</option>
+                <option value="time">Time</option>
+              </select>
+              <label id="power-field">
+                <input id="power" type="number" min="0" step="1" value="25" required aria-label="Power">
+              </label>
+              <label id="time-field" hidden>
+                <input id="time-ms" type="number" min="0" max="600000" step="100" value="2000" required aria-label="Move time">
+                <span>ms per move</span>
+              </label>
+            </div>
+            <small id="power-hint">The same amount of reasoning every move, however long it takes. 0 plays at random; 25 takes under a second, 100 up to about 15&nbsp;s, 150 about a minute. There is no top.</small>
+            <small id="time-hint" hidden>Thinks for this long each move, so a faster computer plays stronger.</small>
+          </fieldset>
+          <button type="submit">Start</button>
+        </form>
+
+        <details class="rules">
+          <summary>How fog chess differs</summary>
+          <ul>
+            <li>You see a square only if one of your pieces could move to it. Everything else is dark, enemy pieces included.</li>
+            <li>There is no check or checkmate. Moving into check is legal; it just loses when the king is taken.</li>
+            <li>A pawn cannot push onto a dark square. The square ahead of a pawn is lit only while it is empty, so a dark one means a hidden piece is in the way.</li>
+            <li>Fifty moves each without a capture or pawn move is a draw.</li>
+          </ul>
+          <p class="note">The opponent is <a href="https://github.com/opowell/obscuro-chess" target="_blank" rel="noopener">Obscuro</a>: it keeps every position consistent with what it has seen and plays an equilibrium strategy over them.</p>
+        </details>
+      </section>
+
+      <section id="in-game" class="card" hidden>
+        <h2>Game</h2>
+        <p id="game-info" class="game-info"></p>
+        <button id="resign" type="button" class="resign">Resign</button>
+      </section>
+
+      <section id="analysis" class="card analysis" hidden>
+        <header class="an-head">
+          <h2>Analysis <span id="an-spinner" class="spinner" title="Analyzing…" hidden></span></h2>
+          <div class="seg" role="group" aria-label="Analysis">
+            <button id="an-on" type="button">On</button>
+            <button id="an-off" type="button">Off</button>
+          </div>
+        </header>
+        <div id="an-body">
+          <div class="an-controls">
+            <span id="an-progress" class="an-progress"></span>
+            <button id="an-pause" type="button" class="an-pause">❙❙ Pause</button>
+          </div>
+          <p id="an-msg" class="an-msg"></p>
+          <ol id="an-rows" class="an-rows"></ol>
+          <p class="note an-note">Moves are ranked by how often Obscuro would play them, the % column (by eval alone when only one board fits what you've seen). The eval is Stockfish's average over the boards you could be facing, in pawns, from your side. Hover a move to see it on the board; click it to pick up the piece.</p>
+          <div id="bw" class="bw" hidden>
+            <select id="bw-order" title="Order the possible boards by how likely they are, or by how good one move looks in them"></select>
+            <div class="bw-step">
+              <button id="bw-prev" type="button" title="Previous board">◀</button>
+              <input id="bw-n" type="number" min="1" value="1" aria-label="Board number">
+              <span id="bw-of"></span>
+              <button id="bw-next" type="button" title="Next board">▶</button>
+              <span id="bw-scope" class="bw-scope"></span>
+            </div>
+            <p id="bw-label" class="bw-label"></p>
+            <p id="bw-warn" class="bw-warn" hidden>Approximate: the exact set of positions was lost, so these boards may include impossible ones and their chances are a flat guess.</p>
+          </div>
+        </div>
+      </section>
 
       <div class="card">
         <label class="toggle">
@@ -54,17 +118,6 @@
         <h2>Moves</h2>
         <ol id="moves" class="moves"></ol>
       </div>
-
-      <details class="card rules">
-        <summary>How fog chess differs</summary>
-        <ul>
-          <li>You see a square only if one of your pieces could move to it. Everything else is dark, enemy pieces included.</li>
-          <li>There is no check or checkmate. Moving into check is legal; it just loses when the king is taken.</li>
-          <li>A pawn push into a hidden piece fails: the pawn stays put and your turn is spent.</li>
-          <li>Fifty moves each without a capture or pawn move is a draw.</li>
-        </ul>
-        <p class="note">The opponent is <a href="https://github.com/opowell/obscuro-chess" target="_blank" rel="noopener">Obscuro</a>: it keeps every position consistent with what it has seen and plays an equilibrium strategy over them.</p>
-      </details>
     </aside>
   </main>
 </body>
