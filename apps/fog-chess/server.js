@@ -12,6 +12,8 @@
 //   POST /fog-chess/api/reviews               { humanColor, keys } → { id }: a
 //                                              finished game replayed that far,
 //                                              for the belief and analysis above
+//   POST /fog-chess/api/reviews/sight         { humanColor, keys } → { aiSeen }:
+//                                              what the AI saw at every ply
 
 import { fileURLToPath } from 'url';
 import { mkdirSync } from 'fs';
@@ -55,6 +57,11 @@ export default (router, app) => {
   router.post('/' + app.id + '/api/reviews', handle(req => {
     const { humanColor, keys } = req.body ?? {};
     return { id: store.review({ humanColor, keys }).id };
+  }));
+
+  router.post('/' + app.id + '/api/reviews/sight', handle(req => {
+    const { humanColor, keys } = req.body ?? {};
+    return store.sight({ humanColor, keys });
   }));
 
   router.get(base + '/:id/belief', handle(req => store.get(req.params.id).belief()));

@@ -334,7 +334,8 @@ button[type="submit"] {
 }
 .outline:hover { border-color: var(--accent); color: var(--accent); }
 .resign:hover { border-color: var(--danger); color: var(--danger); }
-.review-fog { margin-bottom: 12px; }
+.review-fog { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.review-fog-label { font-weight: 600; }
 
 .toggle { display: flex; gap: 8px; align-items: center; font-weight: 600; cursor: pointer; }
 .toggle input { accent-color: var(--accent); }
@@ -427,6 +428,7 @@ a { color: var(--accent); }
   pointer-events: none;
 }
 .arrow { fill: var(--arrow); transition: opacity 120ms; }
+.arrow.mine { fill: rgb(255, 221, 0); }
 
 .piece.ghost { opacity: 0.4; filter: drop-shadow(0 0 2px rgba(var(--belief), 0.9)); }
 

@@ -21,12 +21,14 @@ const statusEl = $('status');
 const promotionEl = $('promotion');
 const beliefToggle = $('show-belief');
 const beliefNote = $('belief-note');
-const reviewFog = $('review-fog');
+const FOGS = ['off', 'white', 'black', 'active'];
 
 let view = null;
 let selected = null;
 let markers = {};
 let circles = new Set(); // squares ringed in yellow
+let arrows = new Set(); // yellow arrows, as from and to squares: 'e2e4'
+let sketch = null; // an arrow being drawn with the right button: { from, to, pointerId }
 let belief = null;
 let flashes = [];
 let busy = false; // a move is on its way to the server
@@ -41,6 +43,9 @@ const store = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
   set(key, value) { try { localStorage.setItem(key, value); } catch { /* private mode */ } },
 };
+
+let reviewFog = store.get('fog-chess:review-fog-side'); // whose fog a review shows: one of FOGS
+if (!FOGS.includes(reviewFog)) reviewFog = 'off';
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -112,7 +117,7 @@ function renderPanels() {
   $('in-game').hidden = !live;
   $('review').hidden = !review;
   $('moves-card').hidden = !live && !review;
-  $('fog-card').hidden = !live && !(review && reviewFog.checked);
+  $('fog-card').hidden = !live && !(review && fogColor() === view.humanColor);
   $('marker-note').hidden = review;
   if (live) {
     const ai = strengthText(view.strength);
@@ -120,7 +125,9 @@ function renderPanels() {
   }
   if (review) {
     const ai = strengthText(view.strength);
-    $('review-info').textContent = `${fmtDate(view.endedAt)}. You played ${view.humanColor}.` + (ai ? ` ${ai}.` : '');
+    $('review-info').textContent = `${fmtDate(view.endedAt)}. You played ${view.humanColor}.` + (ai ? ` ${ai}.` : '')
+      + (view.sightError ? ` The AI's view could not be loaded: ${view.sightError}` : '');
+    for (const button of $('review-fog').children) button.classList.toggle('on', button.dataset.fog === reviewFog);
   }
 }
 
@@ -129,13 +136,25 @@ const fmtDate = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'mediu
 const reviewing = () => !!view?.review;
 const plyOnBoard = () => plyShown ?? (view?.history?.length ?? 1) - 1;
 
+// Whose fog a review shows on the ply on the board, or null for the whole
+// board. 'active' follows the side to move, and white moves first.
+function fogColor() {
+  if (!reviewing() || reviewFog === 'off') return null;
+  if (reviewFog !== 'active') return reviewFog;
+  return plyOnBoard() % 2 === 0 ? 'white' : 'black';
+}
+
 // The position on the board when stepping back through the game (see
 // stepHistory), or null while it shows the game as it stands. A review is
-// always a position from the history: the whole board, or what you saw of it.
+// always a position from the history: the whole board, or what one side saw
+// of it. Until an old game's AI view arrives (see fillAiSight), the AI's side
+// shows the whole board.
 function pastPly() {
   if (reviewing()) {
     const ply = view.history[plyOnBoard()];
-    return reviewFog.checked ? ply.seen : ply;
+    const color = fogColor();
+    if (!color) return ply;
+    return (color === view.humanColor ? ply.seen : ply.aiSeen) ?? ply;
   }
   return plyShown === null ? null : view?.history?.[plyShown] ?? null;
 }
@@ -282,7 +301,8 @@ const historyText = () => `Looking back: ${plyText(plyShown)}. ← → step a mo
 function reviewText() {
   const where = plyText(plyOnBoard());
   const end = plyShown === null ? ' ' + resultText(view.result) : '';
-  return `${where[0].toUpperCase() + where.slice(1)}.${end} ← → step through the game.`;
+  const fog = fogColor() ? ` Through ${fogColor()}'s fog.` : '';
+  return `${where[0].toUpperCase() + where.slice(1)}.${end}${fog} ← → step through the game.`;
 }
 
 function renderMoves() {
@@ -423,6 +443,24 @@ async function openReview(id) {
   render();
   startAnalysis();
   refreshBelief();
+  if (!record.history.every(ply => ply.aiSeen)) fillAiSight(record);
+}
+
+// Games kept before the history carried the AI's view get it from a replay on
+// the server, once: it goes back into the archive.
+async function fillAiSight(record) {
+  const mine = epoch;
+  try {
+    const { aiSeen } = await api(`${REVIEWS}/sight`, { method: 'POST', body: { humanColor: record.humanColor, keys: record.keys } });
+    const history = record.history.map((ply, i) => ({ ...ply, aiSeen: aiSeen[i] }));
+    saveGame({ ...record, history });
+    if (mine !== epoch) return;
+    view.history = history;
+  } catch (error) {
+    if (mine !== epoch) return;
+    view.sightError = error.message;
+  }
+  render();
 }
 
 function closeReview() {
@@ -443,6 +481,8 @@ function leaveGame() {
   belief = null;
   markers = {};
   circles = new Set();
+  arrows = new Set();
+  sketch = null;
   flashes = [];
   promotionEl.hidden = true;
 }
@@ -490,7 +530,7 @@ async function renderArchive() {
 async function refreshBelief() {
   belief = null;
   beliefNote.textContent = '';
-  const on = beliefToggle.checked && (!reviewing() || reviewFog.checked);
+  const on = beliefToggle.checked && (!reviewing() || fogColor() === view.humanColor);
   const t = on ? target() : null;
   if (!t) { renderBoard(); return; }
   const mine = epoch;
@@ -764,22 +804,25 @@ function stepTo(n) {
 }
 
 // Arrows for the top few moves, strongest first; the row under the pointer is
-// drawn over them and the rest fade.
+// drawn over them and the rest fade. Your own yellow arrows go on top, with
+// the one being drawn fainter.
 function renderArrows() {
   const svg = $('arrows');
   const show = analysis.on && !analysis.paused && !!target() && boardOnTarget();
   const top = show ? analysis.candidates.slice(0, ARROWS) : [];
   const hovered = show && analysis.hovered ? analysis.candidates.find(c => c.key === analysis.hovered) : null;
-  const list = top.map((c, i) => ({ c, opacity: hovered ? 0.18 : [0.8, 0.5, 0.32][i] }));
-  if (hovered) list.push({ c: hovered, opacity: 0.9, hovered: true });
+  const list = top.map((c, i) => ({ ...c, opacity: hovered ? 0.18 : [0.8, 0.5, 0.32][i], w: 0.08 }));
+  if (hovered) list.push({ ...hovered, opacity: 0.9, w: 0.1 });
+  for (const key of arrows) list.push({ from: key.slice(0, 2), to: key.slice(2), opacity: 0.85, w: 0.09, mine: true });
+  if (sketch?.to) list.push({ from: sketch.from, to: sketch.to, opacity: 0.5, w: 0.09, mine: true });
   const order = squaresInOrder();
   const centre = sq => { const i = order.indexOf(sq); return [i % 8 + 0.5, Math.floor(i / 8) + 0.5]; };
-  svg.replaceChildren(...list.filter(({ c }) => c.from && c.to && c.from !== c.to).map(({ c, opacity, hovered }) => {
-    const [x1, y1] = centre(c.from);
-    const [x2, y2] = centre(c.to);
+  svg.replaceChildren(...list.filter(a => a.from && a.to && a.from !== a.to).map(({ from, to, opacity, w, mine }) => {
+    const [x1, y1] = centre(from);
+    const [x2, y2] = centre(to);
     const len = Math.hypot(x2 - x1, y2 - y1);
     const ux = (x2 - x1) / len, uy = (y2 - y1) / len, px = -uy, py = ux;
-    const w = hovered ? 0.1 : 0.08, head = Math.min(0.38, len * 0.6), hw = w * 2.6;
+    const head = Math.min(0.38, len * 0.6), hw = w * 2.6;
     const bx = x2 - ux * head, by = y2 - uy * head;
     const pts = [
       [x1 + px * w, y1 + py * w], [bx + px * w, by + py * w], [bx + px * hw, by + py * hw], [x2, y2],
@@ -787,25 +830,27 @@ function renderArrows() {
     ];
     const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     poly.setAttribute('points', pts.map(p => p.map(v => v.toFixed(3)).join(',')).join(' '));
-    poly.setAttribute('class', 'arrow');
+    poly.setAttribute('class', mine ? 'arrow mine' : 'arrow');
     poly.style.opacity = opacity;
     return poly;
   }));
 }
 
-// --- markers and circles -----------------------------------------------------
+// --- markers, circles and arrows --------------------------------------------
 //
 // Your own notes on the board, kept per game in this browser: a guessed piece
-// on a dark square, and yellow rings on any square, the way the Battle
-// Simulator draws them. A ring is about the square, not the position, so it
-// stays put as you step back through the game or review it.
+// on a dark square, and yellow rings and arrows anywhere, the way the Battle
+// Simulator draws them. Rings and arrows are about squares, not the position,
+// so they stay put as you step back through the game or review it.
 
 const markerKey = () => `fog-chess:markers:${view.id}`;
 const circleKey = () => `fog-chess:circles:${view.id}`;
+const arrowKey = () => `fog-chess:arrows:${view.id}`;
 
 function loadMarkers() {
   try { markers = JSON.parse(store.get(markerKey()) ?? '{}') ?? {}; } catch { markers = {}; }
   try { circles = new Set(JSON.parse(store.get(circleKey()) ?? '[]')); } catch { circles = new Set(); }
+  try { arrows = new Set(JSON.parse(store.get(arrowKey()) ?? '[]')); } catch { arrows = new Set(); }
 }
 
 // True if sq took a marker: a dark square in the game as it stands.
@@ -823,6 +868,13 @@ function toggleCircle(sq) {
   if (!circles.delete(sq)) circles.add(sq);
   store.set(circleKey(), JSON.stringify([...circles]));
   renderBoard();
+}
+
+function toggleArrow(from, to) {
+  if (!view) return;
+  if (!arrows.delete(from + to)) arrows.add(from + to);
+  store.set(arrowKey(), JSON.stringify([...arrows]));
+  renderArrows();
 }
 
 // --- moving -----------------------------------------------------------------
@@ -886,6 +938,7 @@ function endDrag() {
 boardEl.addEventListener('pointerdown', e => {
   suppressClick = false;
   pressHandled = false;
+  if (e.button === 2) { startSketch(e); return; }
   if (e.button !== 0 || !e.isPrimary || !canMove()) return;
   const sq = e.target.closest('.sq')?.dataset.sq;
   if (!sq || !view.legal.some(m => m.from === sq)) return;
@@ -894,6 +947,7 @@ boardEl.addEventListener('pointerdown', e => {
 });
 
 window.addEventListener('pointermove', e => {
+  if (sketch && e.pointerId === sketch.pointerId) { moveSketch(e); return; }
   if (!drag || e.pointerId !== drag.pointerId) return;
   if (!drag.ghost) {
     if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < DRAG_THRESHOLD) return;
@@ -905,6 +959,7 @@ window.addEventListener('pointermove', e => {
 });
 
 window.addEventListener('pointerup', e => {
+  if (sketch && e.pointerId === sketch.pointerId && e.button === 2) { endSketch(e); return; }
   if (!drag || e.pointerId !== drag.pointerId) return;
   const dragged = !!drag.ghost;
   endDrag();
@@ -918,11 +973,42 @@ window.addEventListener('pointerup', e => {
 });
 
 window.addEventListener('pointercancel', e => {
+  if (sketch && e.pointerId === sketch.pointerId) { sketch = null; renderArrows(); return; }
   if (!drag || e.pointerId !== drag.pointerId) return;
   const dragged = !!drag.ghost;
   endDrag();
   if (dragged) { selected = null; renderBoard(); }
 });
+
+// --- drawing arrows ----------------------------------------------------------
+//
+// Right-button press, drag to another square and let go: an arrow between
+// them, or off again if it was there. Let go on the same square and it rings
+// it instead. The contextmenu this press also fires (on press or on release,
+// by platform) is the same press, so pressHandled keeps it from ringing again.
+
+function startSketch(e) {
+  const sq = e.target.closest('.sq')?.dataset.sq;
+  if (!sq || !view) return;
+  pressHandled = true;
+  sketch = { from: sq, to: sq, pointerId: e.pointerId };
+}
+
+function moveSketch(e) {
+  const to = squareAt(e.clientX, e.clientY);
+  if (to === sketch.to) return;
+  sketch.to = to;
+  renderArrows();
+}
+
+function endSketch(e) {
+  const { from } = sketch;
+  const to = squareAt(e.clientX, e.clientY);
+  sketch = null;
+  if (to === from) toggleCircle(from);
+  else if (to) toggleArrow(from, to);
+  else renderArrows();
+}
 
 function askPromotion(options) {
   promotionEl.replaceChildren(...PROMOTIONS.map(type => {
@@ -1025,8 +1111,9 @@ boardEl.addEventListener('click', e => {
   onSquare(sq);
 });
 
-// Right-click rings a square, and long-press does on touch screens. Some of
-// those fire contextmenu on a long press as well, so one press rings once.
+// Right-click rings a square (see drawing arrows), and long-press does on touch
+// screens. Some of those fire contextmenu on a long press as well, so one press
+// rings once.
 let pressTimer = null;
 let pressHandled = false;
 function pressCircle(sq) {
@@ -1115,7 +1202,7 @@ $('new-game').addEventListener('submit', e => {
 // too, since the setup card is already asking about the next one.
 $('new-game').addEventListener('change', e => {
   if (e.target.name !== 'color' || playing()) return;
-  if (view) { view = null; belief = null; markers = {}; circles = new Set(); selected = null; }
+  if (view) { view = null; belief = null; markers = {}; circles = new Set(); arrows = new Set(); selected = null; }
   render();
 });
 
@@ -1134,9 +1221,11 @@ $('archive-list').addEventListener('click', async e => {
 
 $('review-close').addEventListener('click', closeReview);
 
-reviewFog.checked = store.get('fog-chess:review-fog') === '1';
-reviewFog.addEventListener('change', () => {
-  store.set('fog-chess:review-fog', reviewFog.checked ? '1' : '0');
+$('review-fog').addEventListener('click', e => {
+  const fog = e.target.closest('[data-fog]')?.dataset.fog;
+  if (!fog || fog === reviewFog) return;
+  reviewFog = fog;
+  store.set('fog-chess:review-fog-side', fog);
   render();
   refreshBelief();
 });

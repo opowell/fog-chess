@@ -150,15 +150,18 @@ export class Game {
   }
 
   // Record the position just reached, for stepping back through the game: what
-  // the human could see of it, and the true board with the move that led to it.
-  // Only the first half goes out while the game is on (see history()). What the
-  // move captured goes out either way: the human sees what they take, and sees
-  // their own pieces vanish.
+  // each side could see of it, and the true board with the move that led to it.
+  // Only the human's sight goes out while the game is on (see history()). What
+  // the move captured goes out either way: the human sees what they take, and
+  // sees their own pieces vanish.
   snapshot(move, color, captured = []) {
     const observation = this.observation();
+    const aiObservation = FogChess.getVisibleState(this.state, this.aiColor);
     this.plies.push({
       seen: boardFor(observation.board),
       visible: observation.visibleSquares,
+      aiSeen: boardFor(aiObservation.board),
+      aiVisible: aiObservation.visibleSquares,
       board: boardFor(this.state.board),
       move: move && { from: move.from, to: move.to },
       color,
@@ -333,14 +336,22 @@ export class Game {
   // Every position of the game so far, one per ply, the start first. While the
   // game is on, each is what the human saw of it then, and the AI's moves stay
   // unmarked. Once it is over the fog has nothing left to hide, so each is the
-  // true board with the move that made it, and what the human saw goes along
-  // as `seen` for looking back at the game through the fog.
+  // true board with the move that made it, and what each side saw goes along
+  // as `seen` (the human) and `aiSeen`, for looking back at the game through
+  // either side's fog.
   history(result = this.result) {
     return this.plies.map(ply => {
-      const { captured } = ply;
-      const seen = { board: ply.seen, visible: ply.visible, revealed: false, lastMove: ply.color === this.humanColor ? ply.move : null, captured };
-      return result ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move, captured, seen } : seen;
+      const seen = this._sight(ply, this.humanColor);
+      return result
+        ? { board: ply.board, visible: [], revealed: true, lastMove: ply.move, captured: ply.captured, seen, aiSeen: this._sight(ply, this.aiColor) }
+        : seen;
     });
+  }
+
+  // One side's view of a ply: only its own moves are marked.
+  _sight(ply, color) {
+    const [board, visible] = color === this.humanColor ? [ply.seen, ply.visible] : [ply.aiSeen, ply.aiVisible];
+    return { board, visible, revealed: false, lastMove: ply.color === color ? ply.move : null, captured: ply.captured };
   }
 
   // Obscuro's read-only analysis of the human's move: the same belief walk the
@@ -479,6 +490,15 @@ export class GameStore {
     game.position = position;
     this._add(game);
     return game;
+  }
+
+  // What the AI saw at every ply of a finished game, for games kept before the
+  // history carried it. Replayed on a throwaway game, never stored.
+  sight({ humanColor, keys }) {
+    if (!COLORS.includes(humanColor)) throw new Error('humanColor must be white or black');
+    if (!Array.isArray(keys) || keys.length > MAX_REVIEW_PLIES) throw new Error('keys must be a list of moves');
+    const game = Game.replay({ id: 'sight', humanColor, keys });
+    return { aiSeen: game.plies.map(ply => game._sight(ply, game.aiColor)) };
   }
 
   _newId() { return Date.now().toString(36) + '-' + (this.nextId++).toString(36); }

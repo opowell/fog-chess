@@ -77,10 +77,15 @@
       <section id="review" class="card" hidden>
         <h2>Review</h2>
         <p id="review-info" class="game-info"></p>
-        <label class="toggle review-fog">
-          <input id="review-fog" type="checkbox">
-          <span>Show only what you could see</span>
-        </label>
+        <div class="review-fog">
+          <span class="review-fog-label">Fog</span>
+          <div id="review-fog" class="seg" role="group" aria-label="Show the board as one side saw it">
+            <button type="button" data-fog="off">Off</button>
+            <button type="button" data-fog="white">White</button>
+            <button type="button" data-fog="black">Black</button>
+            <button type="button" data-fog="active" title="Whichever side is to move on the board">To move</button>
+          </div>
+        </div>
         <button id="review-close" type="button" class="outline">Close</button>
       </section>
 
@@ -141,7 +146,7 @@
           <span>Show where the enemy might be</span>
         </label>
         <p id="belief-note" class="note"></p>
-        <p id="marker-note" class="note">Click a dark square to leave yourself a piece marker; click again to change it. Right-click any square (or long-press on touch) to ring it in yellow.</p>
+        <p id="marker-note" class="note">Click a dark square to leave yourself a piece marker; click again to change it. Right-click any square (or long-press on touch) to ring it in yellow, or right-drag between two squares for an arrow.</p>
       </div>
 
       <div id="moves-card" class="card" hidden>

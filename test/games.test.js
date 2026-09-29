@@ -264,6 +264,28 @@ test('each ply of the history says what it captured, on both sides', async () =>
   assert.deepEqual(view.history[3].seen.captured, [{ type: 'pawn', color: 'black' }]);
 });
 
+test('what the AI saw goes out only once the game is over, and a replay gives the same', async () => {
+  const store = new GameStore();
+  const game = store.create({ humanColor: 'white', power: 0 });
+  game.playHuman('e2e4');
+  let view = await game.waitForAi();
+  view = game.playHuman(pick(view.legal).key);
+  assert.ok(view.history.every(ply => ply.aiSeen === undefined && ply.aiVisible === undefined));
+  assert.ok(!JSON.stringify(view).includes('aiSeen'));
+  await game.waitForAi();
+  view = game.resign();
+  for (const ply of view.history) assertNoLeak({ ...ply.aiSeen, humanColor: view.aiColor });
+  // Black's view of the start: its own pieces, and white's hidden behind the fog.
+  const start = view.history[0].aiSeen;
+  assert.equal(Object.values(start.board).filter(p => p.color === 'black').length, 16);
+  assert.equal(Object.values(start.board).filter(p => p.color === 'white').length, 0);
+  // Only black's own moves are marked in black's view.
+  assert.equal(view.history[1].aiSeen.lastMove, null);
+  assert.ok(view.history[2].aiSeen.lastMove);
+  const { aiSeen } = store.sight({ humanColor: 'white', keys: view.keys });
+  assert.deepEqual(aiSeen, view.history.map(ply => ply.aiSeen));
+});
+
 test('the AI\'s moves and every move key stay hidden until the game ends', async () => {
   const game = new GameStore().create({ humanColor: 'white', power: 0 });
   game.playHuman('e2e4');
