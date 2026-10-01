@@ -55,6 +55,7 @@
       <section id="review" class="card" hidden>
         <h2>Review</h2>
         <p id="review-info" class="game-info"></p>
+        <p id="review-status" class="review-status"></p>
         <div class="review-fog">
           <span class="review-fog-label">Fog</span>
           <div id="review-fog" class="seg" role="group" aria-label="Show the board as one side saw it">
@@ -67,6 +68,28 @@
         <button id="review-line" type="button" class="outline review-line" hidden title="Leave your own line for the game's moves">Back to the game</button>
         <button id="review-close" type="button" class="outline">Close</button>
       </section>
+
+      <section id="taken" class="card" hidden>
+        <h2>Taken</h2>
+        <div class="taken-row">
+          <span class="taken-label">You took</span>
+          <span id="taken-by-you" class="taken-pieces"></span>
+          <span id="edge-you" class="taken-edge"></span>
+        </div>
+        <div class="taken-row">
+          <span class="taken-label">You lost</span>
+          <span id="taken-from-you" class="taken-pieces"></span>
+          <span id="edge-ai" class="taken-edge"></span>
+        </div>
+      </section>
+
+      <div id="fog-card" class="card" hidden>
+        <label class="toggle">
+          <input id="show-belief" type="checkbox">
+          <span>Show where the enemy might be</span>
+        </label>
+        <p id="belief-note" class="note"></p>
+      </div>
     </aside>
 
     <section class="board-wrap">
@@ -85,34 +108,19 @@
         <button id="resign" type="button" class="outline resign">Resign</button>
       </section>
 
-      <section id="taken" class="card" hidden>
-        <h2>Taken</h2>
-        <div class="taken-row">
-          <span class="taken-label">You took</span>
-          <span id="taken-by-you" class="taken-pieces"></span>
-          <span id="edge-you" class="taken-edge"></span>
-        </div>
-        <div class="taken-row">
-          <span class="taken-label">You lost</span>
-          <span id="taken-from-you" class="taken-pieces"></span>
-          <span id="edge-ai" class="taken-edge"></span>
-        </div>
-      </section>
-
       <section id="analysis" class="card analysis" hidden>
         <header class="an-head">
           <h2>Analysis <span id="an-spinner" class="spinner" title="Analyzing…" hidden></span></h2>
-          <div class="seg" role="group" aria-label="Analysis">
-            <button id="an-on" type="button">On</button>
-            <button id="an-off" type="button">Off</button>
+          <div class="an-tools">
+            <button id="an-pause" type="button" class="an-pause">❙❙ Pause</button>
+            <div class="seg" role="group" aria-label="Analysis">
+              <button id="an-on" type="button">On</button>
+              <button id="an-off" type="button">Off</button>
+            </div>
           </div>
         </header>
         <div id="an-body">
-          <div class="an-controls">
-            <span id="an-progress" class="an-progress"></span>
-            <button id="an-pause" type="button" class="an-pause">❙❙ Pause</button>
-          </div>
-          <p id="an-for" class="an-msg" hidden></p>
+          <p id="an-progress" class="an-progress"></p>
           <p id="an-msg" class="an-msg"></p>
           <ol id="an-rows" class="an-rows"></ol>
           <div id="bw" class="bw" hidden>
@@ -130,17 +138,13 @@
         </div>
       </section>
 
-      <div id="fog-card" class="card" hidden>
-        <label class="toggle">
-          <input id="show-belief" type="checkbox">
-          <span>Show where the enemy might be</span>
-        </label>
-        <p id="belief-note" class="note"></p>
-      </div>
-
       <div id="moves-card" class="card" hidden>
         <h2>Moves</h2>
         <ol id="moves" class="moves"></ol>
+        <div id="export" class="export" hidden>
+          <div class="export-row"><span class="export-label">Copy</span><button type="button" data-copy="pgn">PGN</button><button type="button" data-copy="text">Text</button><button type="button" data-copy="uci">UCI</button></div>
+          <div class="export-row"><span class="export-label">Download</span><button type="button" data-download="pgn">PGN</button><button type="button" data-download="text">Text</button><button type="button" data-download="uci">UCI</button></div>
+        </div>
       </div>
     </aside>
   </main>

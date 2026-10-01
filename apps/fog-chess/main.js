@@ -4,6 +4,7 @@
 // are kept in the browser (archive.js) and can be opened again for review.
 
 import { saveGame, listGames, loadGame, deleteGame } from './archive.js';
+import { toPgn, toText, toUci } from './notation.js';
 
 const API = 'api/games';
 const REVIEWS = 'api/reviews';
@@ -121,6 +122,7 @@ function renderPanels() {
   $('in-game').hidden = !live;
   $('review').hidden = !review;
   $('moves-card').hidden = !live && !review;
+  $('export').hidden = !review;
   $('fog-card').hidden = !live && !(review && fogColor());
   $('thinking').hidden = !live || !view.thinking || !!view.error;
   if (live) {
@@ -130,11 +132,22 @@ function renderPanels() {
   if (review) {
     const ai = strengthText(view.strength);
     $('review-info').textContent = `${fmtDate(view.endedAt)}. You played ${view.humanColor}.` + (ai ? ` ${ai}.` : '')
-      + ` ${resultText(view.result)}` + (line?.result ? ` Your line: ${resultText(line.result)}` : '')
       + (view.sightError ? ` The AI's view could not be loaded: ${view.sightError}` : '');
+    $('review-status').textContent = reviewStatus();
     for (const button of $('review-fog').children) button.classList.toggle('on', button.dataset.fog === reviewFog);
     $('review-line').hidden = !line;
   }
+}
+
+// The position on the board in a review: who is to move there, or how the game
+// (or your own line) ended when it is the last one.
+function reviewStatus() {
+  const ply = plyOnBoard();
+  const result = line ? line.result : view.result;
+  if (result && ply === lineHistory().length - 1) return (line ? 'Your line: ' : '') + resultText(result);
+  const color = ply % 2 ? 'black' : 'white';
+  return `${color[0].toUpperCase() + color.slice(1)} to move (${color === view.humanColor ? 'you' : 'the AI'}).`
+    + (line && ply > line.from ? ' Your own line.' : '');
 }
 
 const fmtDate = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -316,6 +329,58 @@ function moveCell(move, ply) {
   if (line && ply > line.from) { el.classList.add('own'); el.title += ', in your own line'; }
   if (ply === plyShown) el.classList.add('current');
   return el;
+}
+
+// The move list written out, for copying or saving: the review's game, or your
+// own line where the board follows one (see notation.js).
+function exported(format) {
+  const game = {
+    plies: lineHistory(), moves: lineMoves(), humanColor: view.humanColor, endedAt: view.endedAt,
+    result: line ? line.result : view.result, from: line?.from,
+  };
+  if (format === 'pgn') {
+    const ai = strengthText(view.strength);
+    return toPgn(game, ai ? `Obscuro (${ai})` : 'Obscuro');
+  }
+  return format === 'uci' ? toUci(game) : toText(game);
+}
+
+const EXPORT_FILE = { pgn: '.pgn', text: '.txt', uci: '-uci.txt' };
+
+function exportName(format) {
+  const d = new Date(view.endedAt ?? Date.now());
+  const pad = n => String(n).padStart(2, '0');
+  return `fog-chess-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`
+    + (line ? '-line' : '') + EXPORT_FILE[format];
+}
+
+async function exportMoves(button) {
+  const format = button.dataset.copy ?? button.dataset.download;
+  let text;
+  try {
+    text = exported(format);
+  } catch (error) {
+    showError(error.message);
+    return;
+  }
+  if (button.dataset.download) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: format === 'pgn' ? 'application/x-chess-pgn' : 'text/plain' }));
+    a.download = exportName(format);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 0);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    showError('Could not copy: ' + error.message);
+    return;
+  }
+  const label = button.textContent;
+  button.textContent = 'Copied';
+  button.disabled = true;
+  setTimeout(() => { button.textContent = label; button.disabled = false; }, 1200);
 }
 
 // --- taken pieces -----------------------------------------------------------
@@ -814,19 +879,17 @@ function renderAnalysis() {
   $('an-off').classList.toggle('on', !analysis.on);
   $('an-body').hidden = !analysis.on;
   $('an-spinner').hidden = !analysis.on || !analysis.running;
+  const pause = $('an-pause');
+  pause.hidden = !analysis.on;
   if (!analysis.on) return;
 
-  const pause = $('an-pause');
   pause.textContent = analysis.paused ? '► Resume' : '❙❙ Pause';
   pause.classList.toggle('on', analysis.paused);
   pause.disabled = !here;
   $('an-progress').textContent = analysis.paused ? '' : (analysis.progress ?? '');
 
-  // In a review, whose move this is, and the one made: its row stays in view
-  // with its real rank even when it is not among the top few.
-  const side = t && reviewing() ? (t.color === view.humanColor ? 'you' : 'the AI') : null;
-  $('an-for').textContent = side ? `${t.color[0].toUpperCase() + t.color.slice(1)} to move (${side}).` : '';
-  $('an-for').hidden = !side;
+  // In a review, the move made: its row stays in view with its real rank even
+  // when it is not among the top few.
   const ranked = here ? analysis.candidates.map((c, i) => ({ ...c, rank: i + 1 })) : [];
   const rows = ranked.slice(0, SHOWN_ROWS);
   const played = ranked.find(c => c.key === t?.played);
@@ -1382,6 +1445,10 @@ $('review-fog').addEventListener('click', e => {
 $('an-on').addEventListener('click', () => setAnalysisOn(true));
 $('an-off').addEventListener('click', () => setAnalysisOn(false));
 $('an-pause').addEventListener('click', () => setPaused(!analysis.paused));
+$('export').addEventListener('click', e => {
+  const button = e.target.closest('button');
+  if (button) exportMoves(button);
+});
 
 const rowsEl = $('an-rows');
 function hoverRow(key) {

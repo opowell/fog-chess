@@ -69,6 +69,9 @@ submodules itself the first time it runs.
   server replays the game that far, so both are built from what you knew then.
   The list lives in the browser, so it is not shared between browsers, and
   clearing the site's data empties it.
+  Under a review's move list, the moves can be copied or downloaded as PGN
+  (standard algebraic, tagged `Variant "Fog of War"`), as the move list shows
+  them, or as UCI coordinates.
 
 When the game ends the fog lifts and the whole board is shown.
 
@@ -76,7 +79,7 @@ When the game ends the fog lifts and the whole board is shown.
 
 | Path | What it is |
 | --- | --- |
-| `apps/fog-chess/` | The app: the page (`index.html`, `main.js`, `style.css`, and `archive.js` for past games), and the server side (`server.js`, `games.js`) |
+| `apps/fog-chess/` | The app: the page (`index.html`, `main.js`, `style.css`, `archive.js` for past games, and `notation.js` for exporting their moves), and the server side (`server.js`, `games.js`) |
 | `vendor/jas/` | [JAS](https://github.com/opowell/jas), the small app server that hosts it (submodule) |
 | `vendor/obscuro-chess/` | [obscuro-chess](https://github.com/opowell/obscuro-chess): the fog-chess rules, the Obscuro AI and the Stockfish engine it uses (submodule, which carries [obscuro-ai](https://github.com/opowell/obscuro-ai) inside it) |
 | `start.sh`, `start.cmd` | Run JAS on this repo's `apps/` folder |

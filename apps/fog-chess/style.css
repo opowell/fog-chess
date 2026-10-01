@@ -297,6 +297,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 
 .setup .panel-head { margin-bottom: 16px; }
 .game-info { margin: 0 0 12px; }
+.review-status { margin: 0 0 12px; font-weight: 600; }
 
 .colors { border: 0; margin: 0 0 12px; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; }
 .colors legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
@@ -369,6 +370,21 @@ button[type="submit"] {
 .moves .own { color: var(--accent); }
 .review-line { margin-bottom: 8px; }
 .moves:empty::before { content: "No moves yet."; grid-column: 1 / -1; color: var(--muted); }
+
+.export { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.export[hidden] { display: none; }
+.export-row { display: flex; align-items: baseline; gap: 10px; }
+.export-label { width: 5.5em; color: var(--muted); }
+.export button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.export button:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 
 .archive-list {
   margin: 0;
@@ -469,10 +485,9 @@ a { color: var(--accent); }
 .seg button.on { background: var(--accent); color: var(--accent-ink); }
 
 #an-body[hidden] { display: none; }
-.an-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.an-tools { display: flex; align-items: center; gap: 8px; }
 .an-progress {
-  flex: 1;
-  min-width: 0;
+  margin: 0 0 8px;
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -493,6 +508,7 @@ a { color: var(--accent); }
 }
 .an-pause.on { color: var(--warn); border-color: var(--warn); }
 .an-pause:disabled { opacity: 0.4; cursor: default; }
+.an-pause[hidden], .an-progress:empty { display: none; }
 
 .an-msg { margin: 4px 0; font-size: 13px; color: var(--muted); }
 .an-msg[hidden] { display: none; }
