@@ -686,7 +686,7 @@ const analysis = {
   run: 0,            // bumped on every stop, so a start still finding its game gives up
   position: null,    // `${game}:${turn}`: what the results below are about
   candidates: [],    // ranked: [{ key, text, from, to, cp, prob }]
-  worlds: null,      // { total, approx, depth, moves, list: [{ id, prob, cp, hidden }] }
+  worlds: null,      // { total, exact, approx, sampled, depth, moves, list: [{ id, prob, cp, hidden }] }
   progress: null,
   single: false,     // only one board fits what you've seen: moves are ranked by eval alone
   error: '',
@@ -887,6 +887,13 @@ function renderAnalysis() {
   renderStepper();
 }
 
+// What the boards are, when they are not every position that fits what was seen.
+const BW_WARN = {
+  lost: 'Rough guess: the set of possible positions was lost, so these boards come from a rule of thumb, in no particular order, and some could never have happened.',
+  approx: 'Approximate: the set of possible positions was rebuilt without its history, so it may include impossible boards and their chances are a flat guess.',
+  sampled: 'Estimated: there were too many possible positions to keep them all, so these come from a sample of them and the chances are estimates.',
+};
+
 function renderStepper() {
   const box = $('bw');
   box.hidden = !worldsShown();
@@ -895,14 +902,17 @@ function renderStepper() {
 
   // The move options are built once per position, in the order the moves were
   // first ranked, so an open dropdown isn't rebuilt under the pointer.
+  // Without a position set there are no chances to order by: the boards are
+  // random draws, and the list says so rather than calling them likely.
   const select = $('bw-order');
+  const byChance = w.exact ? 'Most likely boards' : 'Sampled boards';
   if (stepper.optionsFor !== analysis.position && analysis.candidates.length) {
     stepper.optionsFor = analysis.position;
     const option = (value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; return o; };
-    select.replaceChildren(option('', 'Most likely boards'),
+    select.replaceChildren(option('', byChance),
       ...analysis.candidates.filter(c => w.moves?.includes(c.key)).map(c => option(c.key, `Best for ${c.text}`)));
   } else if (!select.options.length) {
-    select.replaceChildren(new Option('Most likely boards', ''));
+    select.replaceChildren(new Option(byChance, ''));
   }
   select.value = stepper.order;
 
@@ -923,7 +933,9 @@ function renderStepper() {
   $('bw-scope').textContent = stepper.order
     ? `${rows.length} scored${w.depth ? ` at depth ${w.depth}` : ''}`
     : (w.total && w.total > rows.length ? `top ${rows.length} of ${fmtNum(w.total)}` : '');
-  $('bw-warn').hidden = !w.approx;
+  const warn = !w.exact ? BW_WARN.lost : w.approx ? BW_WARN.approx : w.sampled ? BW_WARN.sampled : null;
+  $('bw-warn').hidden = !warn;
+  $('bw-warn').textContent = warn ?? '';
 }
 
 function stepTo(n) {

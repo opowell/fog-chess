@@ -468,7 +468,9 @@ function analysisFrame(info, observation, legal) {
   if (b) {
     out.worlds = {
       total: b.total ?? null,
+      exact: b.exact !== false, // false: no position set, so no chances and no order
       approx: !!b.approx,
+      sampled: !!b.sampled,
       depth: b.depth ?? null,
       moves: b.moves,
       list: b.worlds.map(w => ({
