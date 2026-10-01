@@ -139,12 +139,16 @@
       </section>
 
       <div id="moves-card" class="card" hidden>
-        <h2>Moves</h2>
+        <header class="moves-head">
+          <h2>Moves</h2>
+          <div id="export" class="export" hidden>
+            <span class="export-label">Download</span>
+            <button type="button" data-download="pgn">PGN</button>
+            <button type="button" data-download="text">Text</button>
+            <button type="button" data-download="uci">UCI</button>
+          </div>
+        </header>
         <ol id="moves" class="moves"></ol>
-        <div id="export" class="export" hidden>
-          <div class="export-row"><span class="export-label">Copy</span><button type="button" data-copy="pgn">PGN</button><button type="button" data-copy="text">Text</button><button type="button" data-copy="uci">UCI</button></div>
-          <div class="export-row"><span class="export-label">Download</span><button type="button" data-download="pgn">PGN</button><button type="button" data-download="text">Text</button><button type="button" data-download="uci">UCI</button></div>
-        </div>
       </div>
     </aside>
   </main>

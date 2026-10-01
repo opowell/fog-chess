@@ -331,7 +331,7 @@ function moveCell(move, ply) {
   return el;
 }
 
-// The move list written out, for copying or saving: the review's game, or your
+// The move list written out, for saving: the review's game, or your
 // own line where the board follows one (see notation.js).
 function exported(format) {
   const game = {
@@ -354,8 +354,7 @@ function exportName(format) {
     + (line ? '-line' : '') + EXPORT_FILE[format];
 }
 
-async function exportMoves(button) {
-  const format = button.dataset.copy ?? button.dataset.download;
+function downloadMoves(format) {
   let text;
   try {
     text = exported(format);
@@ -363,24 +362,11 @@ async function exportMoves(button) {
     showError(error.message);
     return;
   }
-  if (button.dataset.download) {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([text], { type: format === 'pgn' ? 'application/x-chess-pgn' : 'text/plain' }));
-    a.download = exportName(format);
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (error) {
-    showError('Could not copy: ' + error.message);
-    return;
-  }
-  const label = button.textContent;
-  button.textContent = 'Copied';
-  button.disabled = true;
-  setTimeout(() => { button.textContent = label; button.disabled = false; }, 1200);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: format === 'pgn' ? 'application/x-chess-pgn' : 'text/plain' }));
+  a.download = exportName(format);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 0);
 }
 
 // --- taken pieces -----------------------------------------------------------
@@ -1447,7 +1433,7 @@ $('an-off').addEventListener('click', () => setAnalysisOn(false));
 $('an-pause').addEventListener('click', () => setPaused(!analysis.paused));
 $('export').addEventListener('click', e => {
   const button = e.target.closest('button');
-  if (button) exportMoves(button);
+  if (button) downloadMoves(button.dataset.download);
 });
 
 const rowsEl = $('an-rows');

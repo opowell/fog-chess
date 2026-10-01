@@ -371,10 +371,11 @@ button[type="submit"] {
 .review-line { margin-bottom: 8px; }
 .moves:empty::before { content: "No moves yet."; grid-column: 1 / -1; color: var(--muted); }
 
-.export { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.moves-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.moves-head h2 { margin: 0; }
+.export { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .export[hidden] { display: none; }
-.export-row { display: flex; align-items: baseline; gap: 10px; }
-.export-label { width: 5.5em; color: var(--muted); }
+.export-label { color: var(--muted); }
 .export button {
   border: 0;
   padding: 0;
@@ -384,7 +385,6 @@ button[type="submit"] {
   text-decoration: underline;
   cursor: pointer;
 }
-.export button:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 
 .archive-list {
   margin: 0;

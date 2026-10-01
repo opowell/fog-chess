@@ -69,7 +69,7 @@ submodules itself the first time it runs.
   server replays the game that far, so both are built from what you knew then.
   The list lives in the browser, so it is not shared between browsers, and
   clearing the site's data empties it.
-  Under a review's move list, the moves can be copied or downloaded as PGN
+  In a review, the links beside Moves download the moves as PGN
   (standard algebraic, tagged `Variant "Fog of War"`), as the move list shows
   them, or as UCI coordinates.
 
