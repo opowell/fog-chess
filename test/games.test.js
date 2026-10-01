@@ -325,6 +325,17 @@ test('a review replays a finished game to the human\'s belief at the time', asyn
   assert.throws(() => store.review({ humanColor: 'green', keys: [] }), /humanColor/);
 });
 
+test('only the most recent reviews are kept, and never at the cost of a game in play', () => {
+  const store = new GameStore();
+  const game = store.create({ humanColor: 'white', power: 0 });
+  const line = ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'g8f6', 'd2d3', 'f8c5', 'c2c3', 'd7d6', 'b1d2', 'a7a6'];
+  const reviews = line.map((_, i) => store.review({ humanColor: 'white', keys: line.slice(0, i) }));
+  const kept = [...store.games.values()].filter(g => g.review);
+  assert.equal(kept.length, 8);
+  assert.deepEqual(kept.map(g => g.id).sort(), reviews.slice(-8).map(g => g.id).sort(), 'the newest eight');
+  assert.equal(store.get(game.id), game);
+});
+
 test('a review can replay a finished game from the AI\'s side, to analyse its moves', async () => {
   const store = new GameStore();
   const game = store.create({ humanColor: 'black', power: 0 });

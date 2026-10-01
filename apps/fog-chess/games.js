@@ -41,6 +41,10 @@ export const MODES = ['power', 'time'];
 export const DEFAULT_STRENGTH = { mode: 'power', power: 25, timeMs: 2000 };
 const MAX_TIME_MS = 600000; // obscuro-chess's own ceiling for a time limit
 const MAX_GAMES = 50;
+// Each review position is a game of its own, holding a belief that can run to
+// tens of MB, and stepping through a review makes one per ply. They are cheap
+// to replay, so only the most recent few are kept.
+const MAX_REVIEWS = 8;
 const MAX_REVIEW_PLIES = 2000;
 
 const LETTER = { king: 'K', queen: 'Q', rook: 'R', bishop: 'B', knight: 'N', pawn: '' };
@@ -537,9 +541,13 @@ export class GameStore {
     return game;
   }
 
-  // Games live in memory only; keep the most recently touched few. Reviews go
-  // first: they are cheap to replay, and stepping through one makes many.
+  // Games live in memory only; keep the most recently touched few, and of
+  // those at most MAX_REVIEWS reviews. Reviews go first: they are cheap to
+  // replay, and stepping through one makes many.
   _evict() {
+    const byAge = list => list.sort((a, b) => a.touchedAt - b.touchedAt);
+    const reviews = byAge([...this.games.values()].filter(g => g.review));
+    for (const game of reviews.slice(0, Math.max(0, reviews.length - MAX_REVIEWS))) this.games.delete(game.id);
     if (this.games.size <= MAX_GAMES) return;
     const oldest = [...this.games.values()].sort((a, b) => (b.review - a.review) || (a.touchedAt - b.touchedAt));
     for (const game of oldest.slice(0, this.games.size - MAX_GAMES)) {
