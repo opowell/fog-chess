@@ -375,7 +375,6 @@ button[type="submit"] {
 .moves-head h2 { margin: 0; }
 .export { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .export[hidden] { display: none; }
-.export-label { color: var(--muted); }
 .export button {
   border: 0;
   padding: 0;
