@@ -463,7 +463,7 @@ function analysisFrame(info, observation, legal) {
         text: describeMove(action, observation.board[action.from]),
         from: action.from,
         to: action.to,
-        cp: c.cp ?? null,
+        score: c.score ?? null, // expected score, per mille, for the side to move
         prob: c.prob ?? null,
       };
     });
@@ -480,7 +480,7 @@ function analysisFrame(info, observation, legal) {
       list: b.worlds.map(w => ({
         id: w.id,
         prob: w.prob ?? null,
-        cp: w.cp ?? null,
+        score: w.score ?? null,
         hidden: w.hidden.map(({ sq, type }) => ({ sq, type })),
       })),
     };

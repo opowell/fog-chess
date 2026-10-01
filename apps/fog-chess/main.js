@@ -685,8 +685,8 @@ const analysis = {
   running: false,
   run: 0,            // bumped on every stop, so a start still finding its game gives up
   position: null,    // `${game}:${turn}`: what the results below are about
-  candidates: [],    // ranked: [{ key, text, from, to, cp, prob }]
-  worlds: null,      // { total, exact, approx, sampled, depth, moves, list: [{ id, prob, cp, hidden }] }
+  candidates: [],    // ranked: [{ key, text, from, to, score, prob }]
+  worlds: null,      // { total, exact, approx, sampled, depth, moves, list: [{ id, prob, score, hidden }] }
   progress: null,
   single: false,     // only one board fits what you've seen: moves are ranked by eval alone
   error: '',
@@ -700,11 +700,11 @@ const ARROWS = 3;
 
 const fmtNum = n => (n ?? 0).toLocaleString();
 
-// Pawns, from your side (+1.35). The engine's mate scores are huge.
-function fmtCp(cp) {
-  if (cp == null) return '';
-  if (Math.abs(cp) >= 90000) return cp > 0 ? '#' : '-#';
-  return (cp >= 0 ? '+' : '') + (cp / 100).toFixed(2);
+// Expected score, from the side to move: the engine's chance of winning plus half
+// its chance of drawing, sent in per mille (624 → 62.4%).
+function fmtScore(score) {
+  if (score == null) return '';
+  return (score / 10).toFixed(1) + '%';
 }
 
 // A posterior over thousands of boards runs small; scale precision to the value.
@@ -821,9 +821,9 @@ function worldRows() {
   const col = stepper.order ? (analysis.worlds?.moves?.indexOf(stepper.order) ?? -1) : -1;
   if (col < 0) return list.map(w => ({ w })).sort((a, b) => (b.w.prob ?? -1) - (a.w.prob ?? -1));
   return list
-    .filter(w => Array.isArray(w.cp) && w.cp.length > col)
-    .map(w => ({ w, cp: w.cp[col], rank: 1 + w.cp.filter(v => v > w.cp[col]).length }))
-    .sort((a, b) => (a.rank - b.rank) || (b.cp - a.cp));
+    .filter(w => Array.isArray(w.score) && w.score.length > col)
+    .map(w => ({ w, score: w.score[col], rank: 1 + w.score.filter(v => v > w.score[col]).length }))
+    .sort((a, b) => (a.rank - b.rank) || (b.score - a.score));
 }
 
 const worldsShown = () => analysis.on && !analysis.paused && !!target() && !!analysis.worlds?.list?.length;
@@ -876,9 +876,12 @@ function renderAnalysis() {
     if (c.key === analysis.hovered) li.classList.add('hovered');
     if (c === played) { li.classList.add('played'); li.title = 'The move played in the game'; }
     const cell = (cls, text) => { const el = document.createElement('span'); el.className = cls; el.textContent = text; return el; };
-    const cp = cell('an-cp', fmtCp(c.cp));
-    if (c.cp > 20) cp.classList.add('pos'); else if (c.cp < -20) cp.classList.add('neg');
-    li.append(cell('an-rank', c.rank), cell('an-move', c.text), cp, cell('an-prob', c.prob == null || analysis.single ? '' : Math.round(c.prob * 100) + '%'));
+    const score = cell('an-cp', fmtScore(c.score));
+    score.title = 'Expected score: the chance of winning plus half the chance of drawing';
+    if (c.score > 520) score.classList.add('pos'); else if (c.score != null && c.score < 480) score.classList.add('neg');
+    const prob = cell('an-prob', c.prob == null || analysis.single ? '' : Math.round(c.prob * 100) + '%');
+    prob.title = 'How often Obscuro would play it';
+    li.append(cell('an-rank', c.rank), cell('an-move', c.text), score, prob);
     if (canPick) li.title = (li.title ? li.title + '. ' : '') + 'Click to pick up this piece';
     return li;
   }));
@@ -928,7 +931,7 @@ function renderStepper() {
   const r = rows[stepper.n - 1];
   const hidden = r?.w.hidden?.length ?? 0;
   $('bw-label').textContent = !r ? 'No boards yet.'
-    : stepper.order ? `The move ranks #${r.rank} of ${r.w.cp.length} here · ${fmtCp(r.cp)}`
+    : stepper.order ? `The move ranks #${r.rank} of ${r.w.score.length} here · ${fmtScore(r.score)}`
     : `${r.w.prob != null ? fmtPct(r.w.prob) + ' likely' : 'A sampled board'} · ${hidden} hidden piece${hidden === 1 ? '' : 's'}`;
   $('bw-scope').textContent = stepper.order
     ? `${rows.length} scored${w.depth ? ` at depth ${w.depth}` : ''}`
