@@ -17,7 +17,7 @@ const VALUE = { pawn: 1, knight: 3, bishop: 3, rook: 5, queen: 9, king: 0 };
 
 const $ = id => document.getElementById(id);
 const boardEl = $('board');
-const statusEl = $('status');
+const errorEl = $('error');
 const promotionEl = $('promotion');
 const beliefToggle = $('show-belief');
 const beliefNote = $('belief-note');
@@ -98,7 +98,7 @@ function squaresInOrder() {
 
 function render() {
   renderBoard();
-  renderStatus();
+  renderError();
   renderMoves();
   renderPanels();
   renderTaken();
@@ -109,19 +109,20 @@ const strengthText = ({ mode, power, timeMs } = {}) =>
   mode === 'time' ? `AI time ${timeMs} ms a move` : mode === 'power' ? `AI power ${power}` : null;
 
 // Setting up a game, playing one and reviewing an old one are separate modes:
-// the setup cards (title, new-game form, rules, past games) on the left go
-// while a game is on, and the game's cards on the right are the in-game ones
-// or a review's. A game that ends becomes a review of itself (see finish).
+// the setup cards (title, new-game form, past games) on the left go while a
+// game is on or under review, a review's own card taking their place, and the
+// game's cards on the right follow the board. A game that ends becomes a
+// review of itself (see finish).
 function renderPanels() {
   const live = playing();
   const review = reviewing();
-  $('setup').hidden = live;
-  $('archive').hidden = live || !archived.length;
+  $('setup').hidden = live || review;
+  $('archive').hidden = live || review || !archived.length;
   $('in-game').hidden = !live;
   $('review').hidden = !review;
   $('moves-card').hidden = !live && !review;
   $('fog-card').hidden = !live && !(review && fogColor());
-  $('marker-note').hidden = review;
+  $('thinking').hidden = !live || !view.thinking || !!view.error;
   if (live) {
     const ai = strengthText(view.strength);
     $('game-info').textContent = `You play ${view.humanColor}.` + (ai ? ` ${ai}.` : '');
@@ -129,6 +130,7 @@ function renderPanels() {
   if (review) {
     const ai = strengthText(view.strength);
     $('review-info').textContent = `${fmtDate(view.endedAt)}. You played ${view.humanColor}.` + (ai ? ` ${ai}.` : '')
+      + ` ${resultText(view.result)}` + (line?.result ? ` Your line: ${resultText(line.result)}` : '')
       + (view.sightError ? ` The AI's view could not be loaded: ${view.sightError}` : '');
     for (const button of $('review-fog').children) button.classList.toggle('on', button.dataset.fog === reviewFog);
     $('review-line').hidden = !line;
@@ -265,14 +267,6 @@ function coord(kind, text) {
   return el;
 }
 
-const NAME = { pawn: 'pawn', knight: 'knight', bishop: 'bishop', rook: 'rook', queen: 'queen', king: 'king' };
-
-function eventText(event) {
-  if (event.kind === 'captured') return `Your ${NAME[event.type]} on ${event.square} was captured.`;
-  if (event.kind === 'took') return `You took a ${NAME[event.type]} on ${event.square}.`;
-  return '';
-}
-
 function resultText(result) {
   if (result.outcome === 'draw') return 'Draw: fifty moves without a capture or pawn move.';
   if (result.reason === 'resigned') return 'You resigned.';
@@ -281,39 +275,15 @@ function resultText(result) {
     : 'You lost: your king was captured.';
 }
 
-function renderStatus() {
-  statusEl.classList.remove('thinking');
-  if (!view) { statusEl.textContent = ''; return; }
-  if (reviewing()) { statusEl.textContent = reviewText(); return; }
-  if (pastPly()) { statusEl.textContent = historyText(); return; }
-  const news = view.events.map(eventText).filter(Boolean).join(' ');
-  if (view.error) {
-    statusEl.textContent = 'The AI hit an error: ' + view.error;
-  } else if (view.thinking) {
-    statusEl.textContent = (news ? news + ' ' : '') + 'Opponent is thinking';
-    statusEl.classList.add('thinking');
-  } else {
-    statusEl.textContent = (news ? news + ' ' : '') + 'Your move.';
-  }
+// Under the board, only when something went wrong: the AI's own error, or the
+// last request that failed, until the next render.
+function renderError() {
+  showError(playing() && view.error ? 'The AI hit an error: ' + view.error : '');
 }
 
-// Where the board is when stepping back, in the move list's own words.
-function plyText(ply) {
-  const move = lineMoves()[ply - 1];
-  return move
-    ? `after ${Math.ceil(ply / 2)}.${move.color === 'white' ? '' : '..'} ${move.text ?? 'the opponent’s hidden move'}`
-    : 'the start';
-}
-
-const historyText = () => `Looking back: ${plyText(plyShown)}. ← → step a move at a time, back to the game at the end.`;
-
-function reviewText() {
-  const where = plyText(plyOnBoard());
-  const result = line ? line.result : view.result;
-  const end = plyShown === null && result ? ' ' + resultText(result) : '';
-  const own = line && plyOnBoard() > line.from ? ' Your own line, not the game.' : '';
-  const fog = fogColor() ? ` Through ${fogColor()}'s fog.` : '';
-  return `${where[0].toUpperCase() + where.slice(1)}.${own}${end}${fog} ← → step through, or move either side to try a line.`;
+function showError(text) {
+  errorEl.textContent = text;
+  errorEl.hidden = !text;
 }
 
 function renderMoves() {
@@ -476,7 +446,7 @@ async function loadMoves() {
   try {
     await replay(lineKeys().slice(0, plyOnBoard()));
   } catch (error) {
-    if (mine === epoch) statusEl.textContent = 'Could not load the moves here: ' + error.message;
+    if (mine === epoch) showError('Could not load the moves here: ' + error.message);
     return;
   }
   if (mine === epoch) renderBoard();
@@ -511,7 +481,7 @@ async function playLine(key) {
   } catch (error) {
     if (mine !== epoch) return;
     busy = false;
-    statusEl.textContent = error.message;
+    showError(error.message);
     startAnalysis();
     renderBoard();
     return;
@@ -660,8 +630,8 @@ async function refreshBelief() {
     if (mine !== epoch || target()?.position !== t.position) return;
     belief = data;
     beliefNote.textContent = data.exact
-      ? `Weighing ${data.positions.toLocaleString()} possible position${data.positions === 1 ? '' : 's'}; shading is the chance an enemy piece is on each dark square.`
-      : 'There are too many possible positions to track exactly any more.';
+      ? `${data.positions.toLocaleString()} possible position${data.positions === 1 ? '' : 's'}.`
+      : 'Too many possible positions to track exactly.';
   } catch (error) {
     if (mine !== epoch || target()?.position !== t.position) return;
     beliefNote.textContent = 'Could not load the belief: ' + error.message;
@@ -855,14 +825,14 @@ function renderAnalysis() {
   // In a review, whose move this is, and the one made: its row stays in view
   // with its real rank even when it is not among the top few.
   const side = t && reviewing() ? (t.color === view.humanColor ? 'you' : 'the AI') : null;
-  $('an-for').textContent = side ? `${t.color[0].toUpperCase() + t.color.slice(1)} to move (${side}), from what ${side === 'you' ? 'you' : 'it'} could see. Evals are from ${t.color}'s side.` : '';
+  $('an-for').textContent = side ? `${t.color[0].toUpperCase() + t.color.slice(1)} to move (${side}).` : '';
   $('an-for').hidden = !side;
   const ranked = here ? analysis.candidates.map((c, i) => ({ ...c, rank: i + 1 })) : [];
   const rows = ranked.slice(0, SHOWN_ROWS);
   const played = ranked.find(c => c.key === t?.played);
   if (played && played.rank > SHOWN_ROWS) rows.push(played);
   let msg = '';
-  if (!here) msg = reviewing() ? 'The game ended here. Step back to analyse a move.' : 'Analysis starts on your move.';
+  if (!here) msg = reviewing() ? 'The game ended here.' : 'Analysis starts on your move.';
   else if (analysis.error) msg = analysis.error;
   else if (analysis.paused && !rows.length) msg = 'Paused.';
   else if (!rows.length) msg = analysis.running ? 'Analyzing…' : 'No suggestions.';
@@ -1195,7 +1165,7 @@ async function play(key) {
     window.playChessMoveSound?.();
     show(next);
   } catch (error) {
-    statusEl.textContent = error.message;
+    showError(error.message);
     if (mine === epoch) { busy = false; startAnalysis(); }
   } finally {
     if (mine === epoch) busy = false;
@@ -1219,7 +1189,7 @@ async function show(next) {
       if (after.moves.length > next.moves.length) window.playChessMoveSound?.();
       return show(after);
     } catch (error) {
-      if (mine === epoch) statusEl.textContent = 'Lost contact with the server: ' + error.message;
+      if (mine === epoch) showError('Lost contact with the server: ' + error.message);
       return;
     }
   }
@@ -1228,8 +1198,8 @@ async function show(next) {
 }
 
 // A game that ends is kept, and stays on the board as a review of itself, from
-// its last position: the moves, what was taken and the analysis stay, and the
-// setup cards come back beside it for the next one.
+// its last position: the moves, what was taken and the analysis stay. Closing
+// the review brings the setup cards back for the next one.
 function finish(next) {
   const mine = epoch;
   clearTimeout(reviewTimer);
@@ -1275,7 +1245,7 @@ async function resign() {
     promotionEl.hidden = true;
     show(next);
   } catch (error) {
-    statusEl.textContent = error.message;
+    showError(error.message);
   }
 }
 
@@ -1350,8 +1320,8 @@ timeEl.value = store.get('fog-chess:time-ms') ?? timeEl.value;
 
 function showMode() {
   const time = modeEl.value === 'time';
-  $('power-field').hidden = $('power-hint').hidden = time;
-  $('time-field').hidden = $('time-hint').hidden = !time;
+  $('power-field').hidden = time;
+  $('time-field').hidden = !time;
   // A disabled input is skipped by form validation, so only the visible one is checked.
   powerEl.disabled = time;
   timeEl.disabled = !time;
@@ -1374,7 +1344,7 @@ beliefToggle.addEventListener('change', () => {
 $('new-game').addEventListener('submit', e => {
   e.preventDefault();
   const color = new FormData(e.target).get('color');
-  newGame(color, strength()).catch(error => { statusEl.textContent = error.message; });
+  newGame(color, strength()).catch(error => showError(error.message));
 });
 
 // Picking a side previews it, unless a game is on the board: a finished one

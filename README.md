@@ -33,9 +33,8 @@ submodules itself the first time it runs.
   - **Power** (0 and up, default 25) fixes how much the AI reasons each move: how
     many possible enemy positions it considers, how many search rounds it runs,
     how big its search tree grows and how deep Stockfish looks at the leaves.
-    Nothing is cut short by the clock, so a level plays the same on any
-    machine and a move takes as long as it takes: under a second at 25, up to
-    about 15 seconds at 100 and about a minute at 150 on a recent laptop. 0
+    Nothing is cut short by the clock, so a level does the same amount of work
+    on any machine; only how long a move takes depends on the computer. 0
     plays random moves. There is no top: past 100, where obscuro-chess's own
     dial ends, every one of those numbers keeps growing along the same curve.
   - **Time** (ms per move) gives the AI a clock instead and searches until it

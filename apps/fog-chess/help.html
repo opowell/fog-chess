@@ -14,10 +14,40 @@
       <p class="tagline"><a href="./">Back to the game</a></p>
     </header>
 
+    <section id="rules" class="card rules">
+      <h2>How fog chess differs</h2>
+      <p>You see only the squares your pieces can reach. Capture the king to win.</p>
+      <ul>
+        <li>You see a square only if one of your pieces could move to it. Everything else is dark, enemy pieces included.</li>
+        <li>There is no check or checkmate. Moving into check is legal; it just loses when the king is taken.</li>
+        <li>A pawn cannot push onto a dark square. The square ahead of a pawn is lit only while it is empty, so a dark one means a hidden piece is in the way.</li>
+        <li>Fifty moves each without a capture or pawn move is a draw.</li>
+      </ul>
+      <p>The opponent is <a href="https://github.com/opowell/obscuro-chess" target="_blank" rel="noopener">Obscuro</a>: it keeps every position consistent with what it has seen and plays an equilibrium strategy over them.</p>
+    </section>
+
+    <section id="strength" class="card">
+      <h2>AI strength</h2>
+      <p><strong>Power</strong> fixes how much the AI reasons each move, as counts rather than time: how many possible enemy positions it considers, how many search rounds it runs, how many positions its search tree may hold, how many it expands and how many equilibrium iterations it runs each round, and how many plies deep Stockfish looks at the leaves. No clock cuts the search short, so a given power does the same amount of work on any machine; only how long a move takes depends on the computer. 0 plays at random. Up to 100 these follow Obscuro's own difficulty dial; past 100 each keeps growing along the same curve (200 is to 100 what 100 is to 0), and there is no top.</p>
+      <p><strong>Time</strong> gives the AI a fixed number of milliseconds per move instead, and it searches until they run out, so a faster computer plays stronger.</p>
+    </section>
+
+    <section id="playing" class="card">
+      <h2>Playing</h2>
+      <p>While the opponent is thinking, a spinner turns beside the Game heading. Your pieces it captures flash red where they stood.</p>
+      <p>Show where the enemy might be shades each dark square by the chance an enemy piece stands there, and labels it with the likeliest piece. The numbers come from your information only: every position consistent with what you have seen, weighted by how likely each is. The note under the switch says how many positions that is.</p>
+      <p>Click a move in the move list, or use ← and →, to step back through the game; step forward to the end to play on.</p>
+    </section>
+
     <section id="analysis" class="card">
       <h2>Analysis</h2>
       <p>Moves are ranked by how often Obscuro would play them, the right-hand % column (by eval alone when only one board fits what you've seen). The eval, the middle column, is your expected score: Stockfish's chance of winning plus half its chance of drawing, averaged over the boards you could be facing. 50% is even. Hover a move to see it on the board; click it to pick up the piece.</p>
       <p>Reviewing a finished game, the analysis covers every move, the AI's as well as yours, each from the side that played it and through that side's fog. The move actually played is marked with a bar, and stays listed with its rank even when it is not among the top five. Set the review's fog to the side to move to see its possible boards and where it thought the enemy might be.</p>
+    </section>
+
+    <section id="past-games" class="card">
+      <h2>Past games</h2>
+      <p>Finished games are kept in this browser, under Past games. Open one to step through it with ← and → and analyse either side's moves. A game you finish opens as a review of itself; close the review to start another.</p>
     </section>
 
     <section id="lines" class="card">

@@ -12,10 +12,11 @@
 <body>
   <main class="layout">
     <aside class="panel setup-panel">
+      <nav class="help-link"><a href="help.html" target="_blank" rel="noopener">Help</a></nav>
+
       <section id="setup" class="card setup">
         <header class="panel-head">
           <h1>Fog Chess</h1>
-          <p class="tagline">You see only the squares your pieces can reach. Capture the king to win.</p>
         </header>
 
         <form id="new-game">
@@ -41,41 +42,16 @@
                 <span>ms per move</span>
               </label>
             </div>
-            <small id="power-hint">The same amount of reasoning every move, however long it takes. 0 plays at random; 25 takes under a second, 100 up to about 15&nbsp;s, 150 about a minute. There is no top.</small>
-            <small id="time-hint" hidden>Thinks for this long each move, so a faster computer plays stronger.</small>
           </fieldset>
           <button type="submit">Start</button>
         </form>
-
-        <details class="rules">
-          <summary>How fog chess differs</summary>
-          <ul>
-            <li>You see a square only if one of your pieces could move to it. Everything else is dark, enemy pieces included.</li>
-            <li>There is no check or checkmate. Moving into check is legal; it just loses when the king is taken.</li>
-            <li>A pawn cannot push onto a dark square. The square ahead of a pawn is lit only while it is empty, so a dark one means a hidden piece is in the way.</li>
-            <li>Fifty moves each without a capture or pawn move is a draw.</li>
-          </ul>
-          <p class="note">The opponent is <a href="https://github.com/opowell/obscuro-chess" target="_blank" rel="noopener">Obscuro</a>: it keeps every position consistent with what it has seen and plays an equilibrium strategy over them.</p>
-        </details>
       </section>
 
       <section id="archive" class="card" hidden>
         <h2>Past games</h2>
         <ol id="archive-list" class="archive-list"></ol>
-        <p class="note">Kept in this browser. Open one to step through it and analyse either side's moves.</p>
       </section>
-    </aside>
 
-    <section class="board-wrap">
-      <div class="board-frame">
-        <div id="board" class="board" role="grid" aria-label="Chess board"></div>
-        <svg id="arrows" class="arrows" viewBox="0 0 8 8" aria-hidden="true"></svg>
-        <div id="promotion" class="promotion" hidden></div>
-      </div>
-      <p id="status" class="status" aria-live="polite">Loading…</p>
-    </section>
-
-    <aside class="panel game-panel">
       <section id="review" class="card" hidden>
         <h2>Review</h2>
         <p id="review-info" class="game-info"></p>
@@ -91,9 +67,20 @@
         <button id="review-line" type="button" class="outline review-line" hidden title="Leave your own line for the game's moves">Back to the game</button>
         <button id="review-close" type="button" class="outline">Close</button>
       </section>
+    </aside>
 
+    <section class="board-wrap">
+      <div class="board-frame">
+        <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+        <svg id="arrows" class="arrows" viewBox="0 0 8 8" aria-hidden="true"></svg>
+        <div id="promotion" class="promotion" hidden></div>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <aside class="panel game-panel">
       <section id="in-game" class="card" hidden>
-        <h2>Game</h2>
+        <h2>Game <span id="thinking" class="spinner" title="Opponent is thinking" hidden></span></h2>
         <p id="game-info" class="game-info"></p>
         <button id="resign" type="button" class="outline resign">Resign</button>
       </section>
@@ -128,7 +115,6 @@
           <p id="an-for" class="an-msg" hidden></p>
           <p id="an-msg" class="an-msg"></p>
           <ol id="an-rows" class="an-rows"></ol>
-          <p class="note an-note"><a href="help.html#analysis" target="_blank" rel="noopener">How moves are ranked</a></p>
           <div id="bw" class="bw" hidden>
             <select id="bw-order" title="Order the possible boards by how likely they are, or by how good one move looks in them"></select>
             <div class="bw-step">
@@ -150,7 +136,6 @@
           <span>Show where the enemy might be</span>
         </label>
         <p id="belief-note" class="note"></p>
-        <p id="marker-note" class="note"><a href="help.html#markers" target="_blank" rel="noopener">Markers and arrows</a></p>
       </div>
 
       <div id="moves-card" class="card" hidden>

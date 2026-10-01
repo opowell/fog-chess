@@ -94,22 +94,23 @@ body {
 .board-wrap { grid-area: board; }
 .game-panel { grid-area: game; }
 
-/* Narrower, the setup cards go under the game's. An empty track still takes a
-   gap, so the space between the panels comes from the game panel instead. */
+/* Narrower, the left panel (setup, or a review's card) goes above the game's
+   cards. An empty track still takes a gap, so the space between the panels
+   comes from the left panel instead: it always holds the help link. */
 @media (max-width: 1180px) {
   .layout {
     grid-template-columns: minmax(0, 1fr) 320px;
-    grid-template-areas: "board game" "board setup";
+    grid-template-areas: "board setup" "board game";
     grid-template-rows: auto 1fr; /* the board spans both: its height goes to the second */
     row-gap: 0;
   }
-  .game-panel:has(> :not([hidden])) { margin-bottom: 14px; }
+  .setup-panel { margin-bottom: 14px; }
 }
 
 @media (max-width: 820px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "board" "game" "setup";
+    grid-template-areas: "board" "setup" "game";
     grid-template-rows: none;
   }
   .board-wrap { margin-bottom: 24px; }
@@ -130,11 +131,11 @@ body {
 }
 
 /* As large as fits: the full column width, or the viewport height less the
-   page padding and the status line under the board. */
+   page padding. */
 .board-frame {
   position: relative;
-  width: min(100%, calc(100vh - 42px - 3em));
-  width: min(100%, calc(100dvh - 42px - 3em));
+  width: min(100%, calc(100vh - 32px));
+  width: min(100%, calc(100dvh - 32px));
   min-width: 260px;
   container-type: inline-size;
   aspect-ratio: 1;
@@ -276,27 +277,15 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 }
 .promotion img { width: 100%; height: 100%; }
 
-.status {
-  margin: 0;
-  min-height: 1.5em;
-  font-weight: 600;
-  text-align: center;
-}
-.status.thinking::after {
-  content: "";
-  display: inline-block;
-  width: 0.8em;
-  margin-left: 2px;
-  text-align: left;
-  animation: dots 1.2s steps(4) infinite;
-}
-@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+.error { margin: 0; font-weight: 600; text-align: center; color: var(--bad); }
+.error[hidden] { display: none; }
 
 /* --- panel ---------------------------------------------------------------- */
 
 .panel { display: flex; flex-direction: column; gap: 14px; }
 .panel-head h1 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
 .tagline { margin: 4px 0 0; color: var(--muted); }
+.help-link { font-weight: 600; }
 
 .card {
   background: var(--panel);
@@ -304,10 +293,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   border-radius: 10px;
   padding: 14px 16px;
 }
-.card h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.card h2 { margin: 0 0 10px; display: flex; align-items: center; gap: 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 
 .setup .panel-head { margin-bottom: 16px; }
-.setup .rules { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .game-info { margin: 0 0 12px; }
 
 .colors { border: 0; margin: 0 0 12px; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; }
@@ -317,7 +305,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .strength legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
 .strength-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .strength-row label { display: flex; gap: 6px; align-items: center; }
-.strength-row label[hidden], .strength small[hidden] { display: none; }
+.strength-row label[hidden] { display: none; }
 .strength select, .strength input {
   font: inherit;
   padding: 4px 6px;
@@ -327,7 +315,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   color: var(--ink);
 }
 .strength input { width: 6.5em; }
-.strength small, .note { color: var(--muted); font-size: 13px; }
+.note { color: var(--muted); font-size: 13px; }
 .note { margin: 8px 0 0; }
 
 button[type="submit"] {
@@ -436,8 +424,7 @@ button[type="submit"] {
 .taken-pieces img.new-kind { margin-left: 2px; }
 .taken-edge { font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-.rules summary { cursor: pointer; font-weight: 600; }
-.rules ul { margin: 10px 0 0; padding-left: 18px; }
+.rules ul { margin: 0; padding-left: 18px; }
 .rules li { margin-bottom: 4px; }
 a { color: var(--accent); }
 
@@ -528,12 +515,12 @@ a { color: var(--accent); }
 .an-cp, .an-prob { font-size: 13px; text-align: right; color: var(--muted); }
 .an-cp.pos { color: var(--good); }
 .an-cp.neg { color: var(--bad); }
-.an-note { font-size: 12px; }
 
 /* --- help page ------------------------------------------------------------ */
 
 .help { max-width: 640px; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 14px; }
 .help .card p { margin: 0; }
+.help .card p + p, .help .card ul + p, .help .card p + ul { margin-top: 8px; }
 
 .bw { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
 .bw[hidden] { display: none; }
