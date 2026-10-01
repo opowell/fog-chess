@@ -188,7 +188,7 @@ function renderBoard() {
   order.forEach((sq, i) => {
     const file = sq[0];
     const rank = Number(sq[1]);
-    const isDark = (FILES.indexOf(file) + rank) % 2 === 0;
+    const isDark = (FILES.indexOf(file) + rank) % 2 === 1; // a1 is dark, h1 light
     const fogged = !shown.revealed && !visible.has(sq);
     const piece = shown.board[sq];
 
