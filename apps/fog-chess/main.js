@@ -721,8 +721,8 @@ const ARROWS = 3;
 
 const fmtNum = n => (n ?? 0).toLocaleString();
 
-// Expected score, from the side to move: the engine's chance of winning plus half
-// its chance of drawing, sent in per mille (624 → 62.4%).
+// Expected score under fog, from the side to move: how often such positions are
+// won, sent in per mille (624 → 62.4%).
 function fmtScore(score) {
   if (score == null) return '';
   return (score / 10).toFixed(1) + '%';
@@ -896,7 +896,7 @@ function renderAnalysis() {
     if (c === played) { li.classList.add('played'); li.title = 'The move played in the game'; }
     const cell = (cls, text) => { const el = document.createElement('span'); el.className = cls; el.textContent = text; return el; };
     const score = cell('an-cp', fmtScore(c.score));
-    score.title = 'Expected score: the chance of winning plus half the chance of drawing';
+    score.title = 'Expected score under fog: how often games from here are won';
     if (c.score > 520) score.classList.add('pos'); else if (c.score != null && c.score < 480) score.classList.add('neg');
     const prob = cell('an-prob', c.prob == null || analysis.single ? '' : Math.round(c.prob * 100) + '%');
     prob.title = 'How often Obscuro would play it';

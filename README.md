@@ -50,8 +50,9 @@ submodules itself the first time it runs.
   through every position consistent with what you have seen, getting wider
   (more of them) and deeper (more Stockfish depth) until it has covered them
   all, and shows for each move how often Obscuro's strategy plays it and its
-  expected score (Stockfish's chance of winning plus half its chance of
-  drawing, averaged over those positions). The top three are drawn as arrows. Below the list you
+  expected score under fog (how often games from positions like these are
+  won, judging by Stockfish's evaluation and thousands of real fog games,
+  averaged over those positions). The top three are drawn as arrows. Below the list you
   can step through the boards you might be facing, most likely first or
   ranked by how good one move looks in them, with the enemy pieces drawn
   faintly on the fog. Like the shading above it uses only your information.
